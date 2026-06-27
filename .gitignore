@@ -9,3 +9,5 @@ build/
 .venv/
 venv/
 local
+# ignore generated JSON reports
+report*.json

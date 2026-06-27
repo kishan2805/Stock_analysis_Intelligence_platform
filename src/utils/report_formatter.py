@@ -6,7 +6,7 @@ from rich import box
 console = Console()
 
 def print_final_report(cio: dict, debate: dict, audited: dict, agent_reports: dict = None):
-    title = f"HFIP v2.2 — {cio.get('ticker')} ({cio.get('company_name')})"
+    title = f"SIAP v2.5 — {cio.get('ticker')} ({cio.get('company_name')})"
     scores = cio.get("scores", {})
     calc = cio.get("score_calculation", {})
 

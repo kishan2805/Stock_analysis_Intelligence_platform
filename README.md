@@ -76,4 +76,4 @@ pytest tests/ -v
 - **Stage 4**: Bull vs Bear Debate (8 rounds + Committee Q&A)
 - **Stage 5**: CIO Judgment (multidimensional output)
 
-See `HFIP_v2_ARCHITECTURE.md` for full details.
+See `SIAP_v2_ARCHITECTURE.md` for full details.

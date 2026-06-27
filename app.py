@@ -9,8 +9,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from src.utils.config_loader import load_config
 from src.pipeline.orchestrator import PipelineOrchestrator
 
-st.set_page_config(page_title="HFIP v2.2", layout="wide")
-st.title("Hedge Fund Intelligence Platform v2.2")
+st.set_page_config(page_title="SIAP v2.5", layout="wide")
+st.title("Hedge Fund Intelligence Platform v2.5")
 st.caption("AI-powered multi-agent stock analysis")
 
 # Sidebar config
@@ -36,7 +36,7 @@ with st.form("analysis_form"):
     submitted = st.form_submit_button("Analyse", type="primary")
 
 if submitted and config and ticker:
-    with st.spinner("Running HFIP pipeline..."):
+    with st.spinner("Running SIAP pipeline..."):
         try:
             result = asyncio.run(
                 PipelineOrchestrator(config).run(

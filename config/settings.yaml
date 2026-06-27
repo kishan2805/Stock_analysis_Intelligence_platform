@@ -1,6 +1,6 @@
 # config/settings.yaml
 # ─────────────────────────────────────────────────────────────────────────
-# HFIP v2.2 — Model Cascade Configuration
+# SIAP v2.5 — Model Cascade Configuration
 # Cascade: 1. Primary (original default) → 2. Fallback 1 (original fallback)
 #          → 3. Fallback 2 (Ollama local) → 4. Fallback 3 (Gemini API)
 # ─────────────────────────────────────────────────────────────────────────

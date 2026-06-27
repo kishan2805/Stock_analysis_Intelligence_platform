@@ -24,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def main():
-    parser = argparse.ArgumentParser(description="HFIP v2.2 — Hedge Fund Intelligence Platform")
+    parser = argparse.ArgumentParser(description="SIAP v2.5 — Hedge Fund Intelligence Platform")
     parser.add_argument("--ticker", required=True, help="Stock ticker (e.g., RELIANCE.NS, AAPL)")
     parser.add_argument("--exchange", default="IN", choices=["IN", "US"], help="Exchange: IN or US")
     parser.add_argument("--duration", type=int, default=18, help="Investment horizon in months")
@@ -39,7 +39,7 @@ def main():
 
     config = load_config(args.config)
 
-    console.print(f"\n[bold green]HFIP v2.2[/] — Analysing [cyan]{args.ticker}[/] ([cyan]{args.exchange}[/])")
+    console.print(f"\n[bold green]SIAP v2.5[/] — Analysing [cyan]{args.ticker}[/] ([cyan]{args.exchange}[/])")
     console.print(f"Duration: {args.duration} months | Depth: {args.depth}\n")
 
     try:
