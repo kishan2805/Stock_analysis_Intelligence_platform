@@ -1,4 +1,4 @@
-# HFIP v2.2 — Hedge Fund Intelligence Platform
+# SAIP v2.5 — Stock_analysis_Intelligence_platform
 
 AI-powered multi-agent stock analysis pipeline with 10 agents, evidence auditing,
 Bull vs Bear debate, and CIO multidimensional output.
