@@ -11,3 +11,4 @@ venv/
 local
 # ignore generated JSON reports
 report*.json
+reports

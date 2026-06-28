@@ -28,16 +28,18 @@ ollama pull deepseek-v4-pro
 ollama pull glm-5.2
 
 # 5. Run analysis
-python src/main.py --ticker RELIANCE.NS --exchange IN --duration 18
+source /Users/kishan/Desktop/hedge-fund-app/venv/bin/activate
+
+python -m src/main.py --ticker RELIANCE.NS --exchange IN --duration 18
 
 # Or run with JSON output
-python src/main.py --ticker TCS.NS --exchange IN --duration 18 --format json --output report.json
+python -m src/main.py --ticker TCS.NS --exchange IN --duration 18 --format json --output report.json
 
 # Quick mode (faster, fewer agents)
-python src/main.py --ticker INFY.NS --exchange IN --depth quick
+python -m src/main.py --ticker INFY.NS --exchange IN --depth quick
 
 # Skip debate for faster execution
-python src/main.py --ticker HDFCBANK.NS --exchange IN --no-debate
+python -m src/main.py --ticker HDFCBANK.NS --exchange IN --no-debate
 ```
 
 ## Model Cascade (4-Tier)
