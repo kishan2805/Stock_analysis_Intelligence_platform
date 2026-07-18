@@ -50,12 +50,8 @@ def _agent_score_display(name: str, report: dict) -> str:
         return "[dim]n/s[/dim]"  # not scored — by design
 
     if name == "risk_narrative":
-        ds2 = report.get("det_risk_score")
-        if ds2 is not None:
-            try:
-                return f"{float(ds2):.1f} ⚠"
-            except (TypeError, ValueError):
-                pass
+        # Risk Officer is narrative-only. The canonical numerical score is
+        # emitted by the separate deterministic_risk engine below.
         return "[dim]n/s[/dim]"
 
     # Standard score keys
@@ -222,6 +218,12 @@ def print_agent_scores_table(agent_reports: dict):
         status    = _agent_status(report)
         model     = report.get("_model_used", "N/A") if isinstance(report, dict) else "N/A"
         table.add_row(name, score_str, status, model)
+
+    det_risk = agent_reports.get("det_risk")
+    if isinstance(det_risk, dict):
+        score = det_risk.get("det_risk_score")
+        score_str = f"{float(score):.1f} ⚠" if score is not None else "[red]N/A[/red]"
+        table.add_row("deterministic_risk", score_str, "[green]OK[/green]", "Python rules")
 
     # Any extra agents not in the preferred order
     for name, report in agent_reports.items():

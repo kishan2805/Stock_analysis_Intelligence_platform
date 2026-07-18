@@ -60,15 +60,14 @@ def main():
                 console.print(f"\n[green]Saved to {args.output}[/]")
         else:
             # Rich formatted output
+            display_reports = dict(result.get("agent_reports") or {})
+            display_reports["det_risk"] = result.get("det_risk") or {}
             print_final_report(
                 result["cio"],
                 result.get("debate"),
                 result.get("audited_bundle", {}),
-                result.get("agent_reports")
+                display_reports,
             )
-
-            if result.get("agent_reports"):
-                print_agent_scores_table(result["agent_reports"])
 
             if args.output:
                 with open(args.output, "w") as f:

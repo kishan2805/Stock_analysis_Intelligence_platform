@@ -162,7 +162,10 @@ class CIOAgent:
             config_weights, ticker, company_name, duration_months,
         )
         try:
-            narrative = await self._get_narrative(skeleton, audited_bundle, debate_result)
+            if self.llm.get_model_name().lower().startswith("gemma3:4b"):
+                narrative = self._local_narrative(skeleton, audited_bundle, debate_result, det_risk)
+            else:
+                narrative = await self._get_narrative(skeleton, audited_bundle, debate_result)
             skeleton.update(narrative)
         except Exception as e:
             logger.error(f"[cio] narrative LLM call failed: {e}")
@@ -172,6 +175,63 @@ class CIOAgent:
 
         skeleton["_model_used"] = self.llm.get_model_name()
         return skeleton
+
+    def _local_narrative(self, skeleton: dict, audited_bundle: dict,
+                         debate_result: dict, det_risk: dict) -> dict:
+        """Build a grounded CIO narrative without a second hallucination-prone call.
+
+        Gemma already handles the specialist calls and debate. Asking the same
+        small model to rewrite every report into a long CIO memo caused it to
+        invent figures that were not in the KnowledgeGraph. This path uses only
+        fields that are already present in the audited bundle.
+        """
+        reports = audited_bundle.get("validated_reports", {})
+        fundamental = _find_report(reports, "fundamental")
+        macro = _find_report(reports, "macro")
+        growth = _find_report(reports, "growth")
+        moat = _find_report(reports, "moat")
+        risk = _find_report(reports, "risk_narrative")
+        regime = _find_report(reports, "market_regime")
+
+        summary = []
+        metrics = fundamental.get("key_metrics_cited") or {}
+        cited = [f"{key}={value}" for key, value in metrics.items() if value is not None]
+        if cited:
+            summary.append("Fundamental evidence: " + ", ".join(cited[:3]) + ".")
+        if macro.get("sentiment_summary"):
+            summary.append("Macro evidence: " + str(macro["sentiment_summary"]))
+        if moat.get("moat_score") is not None:
+            summary.append(f"Moat score: {moat['moat_score']}/10 ({moat.get('moat_category', 'unclassified')}).")
+        valuation = growth.get("valuation_verdict")
+        pe = (growth.get("relative_valuation") or {}).get("pe_current")
+        if valuation or pe is not None:
+            detail = f"valuation={valuation or 'N/A'}"
+            if pe is not None:
+                detail += f", P/E={pe}"
+            summary.append("Growth/valuation evidence: " + detail + ".")
+        risk_score = det_risk.get("det_risk_score")
+        if risk_score is not None:
+            summary.append(f"Deterministic risk score: {risk_score}/10 (lower is safer).")
+
+        if not summary:
+            summary = ["No grounded summary was available; review the agent reports and audit warnings."]
+
+        ranked_risks = risk.get("ranked_risks") or []
+        thesis_risk = ranked_risks[0].get("risk") if ranked_risks and isinstance(ranked_risks[0], dict) else None
+        regime_flags = []
+        if regime.get("primary_regime"):
+            regime_flags.append(str(regime["primary_regime"]))
+        regime_flags.extend(str(item) for item in (regime.get("unpriced_risks") or [])[:2])
+
+        return {
+            "expected_cagr": None,
+            "five_point_summary": summary[:5],
+            "buy_below_price": None,
+            "next_catalyst_to_watch": None,
+            "thesis_invalidating_risk": thesis_risk,
+            "debate_decisive_argument": "See the Bull vs Bear transcript; no unsupported decisive claim was generated.",
+            "geopolitical_regime_flags": regime_flags,
+        }
 
     def _compute_scores(
         self,

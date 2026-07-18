@@ -112,6 +112,12 @@ class DebateOrchestrator:
             user_msg += f"\n\nPrevious round:\n{prior[-2500:] if is_local_gemma else prior}"
 
         instruction = self._load_round_instruction(round_id)
+        if is_local_gemma:
+            instruction = (
+                "FIRST LINE MUST be exactly `CONVICTION: X/10` with X from 0 to 10. "
+                "Keep the response under 120 words and use only supplied evidence.\n"
+                + instruction
+            )
         return llm.complete(
             system_prompt=instruction,
             user_message=user_msg,
@@ -156,9 +162,21 @@ class DebateOrchestrator:
         return instructions.get(round_id, "Continue the debate.")
 
     def _extract_score(self, text: str, label: str) -> float:
-        pattern = rf"{label}:\s*(\d+(?:\.\d+)?)/10"
-        match = re.search(pattern, text, re.IGNORECASE)
-        return float(match.group(1)) if match else 5.0
+        # Gemma commonly shortens the required label to "Conviction Score".
+        # Accept that form while keeping the role-specific label preferred.
+        labels = [label]
+        if label.upper().startswith("BULL ") or label.upper().startswith("BEAR "):
+            labels.append("CONVICTION SCORE")
+        for candidate in labels:
+            pattern = rf"{re.escape(candidate)}\s*:?\s*(\d+(?:\.\d+)?)\s*(?:/\s*10)?"
+            matches = list(re.finditer(pattern, text or "", re.IGNORECASE))
+            if matches:
+                return float(matches[-1].group(1))
+        # Shortest form produced by some local responses: "Conviction: 8/10".
+        match = re.search(r"conviction\s*:?\s*(\d+(?:\.\d+)?)\s*(?:/\s*10)?", text or "", re.IGNORECASE)
+        if match:
+            return float(match.group(1))
+        return 5.0
 
     def _finalize(self, transcript, error=None):
         bull_scores = []

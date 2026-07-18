@@ -31,3 +31,24 @@ def test_missing_specialist_is_not_replaced_with_neutral_five():
     assert calc["agent_scores"]["fundamental"] is None
     assert "fundamental" in calc["missing_agents"]
     assert calc["weights"]["fundamental"] == 0
+
+
+def test_local_cio_narrative_uses_grounded_fields_only():
+    agent = CIOAgent.__new__(CIOAgent)
+    narrative = agent._local_narrative(
+        {},
+        {
+            "validated_reports": {
+                "fundamental": {"key_metrics_cited": {"debt_equity": 0.8}},
+                "macro": {"sentiment_summary": "Neutral."},
+                "moat": {"moat_score": 7, "moat_category": "WIDE"},
+                "growth": {"valuation_verdict": "FAIR", "relative_valuation": {"pe_current": 20}},
+                "risk_narrative": {"ranked_risks": [{"risk": "Competition"}]},
+                "market_regime": {"primary_regime": "NEUTRAL_CONSOLIDATION"},
+            }
+        },
+        {},
+        {"det_risk_score": 2.4},
+    )
+    assert all("850 million" not in item for item in narrative["five_point_summary"])
+    assert narrative["thesis_invalidating_risk"] == "Competition"
