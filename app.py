@@ -12,6 +12,7 @@ from src.pipeline.orchestrator import PipelineOrchestrator
 st.set_page_config(page_title="SIAP v2.5", layout="wide")
 st.title("Hedge Fund Intelligence Platform v2.5")
 st.caption("AI-powered multi-agent stock analysis")
+st.sidebar.info("📺 Scan public YouTube videos or channels from **YouTube Stock Scanner** in the page list.")
 
 # Sidebar config
 with st.sidebar:
@@ -25,9 +26,11 @@ with st.sidebar:
         config = None
 
 # Main form
+if "prefill_ticker" in st.session_state:
+    st.session_state["main_ticker"] = st.session_state.pop("prefill_ticker")
 with st.form("analysis_form"):
     col1, col2, col3 = st.columns(3)
-    ticker = col1.text_input("Ticker", placeholder="RELIANCE.NS or AAPL")
+    ticker = col1.text_input("Ticker", key="main_ticker", placeholder="RELIANCE.NS or AAPL")
     exchange = col2.selectbox("Exchange", ["IN", "US"])
     duration = col3.selectbox("Horizon (months)", [6, 12, 18, 24, 36, 60], index=2)
     depth = st.radio("Analysis Depth", ["quick", "balanced", "premium"],
@@ -84,7 +87,7 @@ if submitted and config and ticker:
                         agent_data.append({"Agent": name, "Score": score, "Model": model})
 
                 if agent_data:
-                    st.dataframe(agent_data, use_container_width=True)
+                    st.dataframe(agent_data, width="stretch")
 
                 st.subheader("Score Calculation")
                 calc = cio.get("score_calculation", {})

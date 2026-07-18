@@ -7,12 +7,31 @@
 
 ollama:
   base_url: "http://localhost:11434"
-  office_model: "qwen2.5-14b"
+  office_model: "gemma3:4b"
 
 api_keys:
   gemini:     "${GEMINI_API_KEY}"
   openai:     "${OPENAI_API_KEY}"
   anthropic:  "${ANTHROPIC_API_KEY}"
+
+# Public YouTube recommendation scanner (controlled beta)
+youtube_signals:
+  api_key: "${GROQ_API_KEY}"
+  scan:
+    lookback_days_default: 14
+    max_videos_per_channel: 6
+    max_deep_dives: 6
+    deep_dive_concurrency: 2
+  transcription:
+    prefer_captions: true
+    translation_model: "whisper-large-v3" # turbo cannot translate audio to English
+    caption_translation_model: "llama-3.3-70b-versatile"
+  extraction:
+    model: "llama-3.3-70b-versatile"
+    temperature: 0.1
+  ranking:
+    top_n_default: 5
+    max_per_sector: 2
 
 agents:
   intelligence_builder:
@@ -27,7 +46,7 @@ agents:
     fallback_2: "qwen2.5-14b"
     fallback_3: "gemini-2.5-flash"
     temperature: 0.1
-    max_tokens: 2500
+    max_tokens: 10000
 
   macro:
     model:    "glm-5.2"
@@ -43,7 +62,7 @@ agents:
     fallback_2: "qwen2.5-14b"
     fallback_3: "gemini-2.5-flash"
     temperature: 0.2
-    max_tokens: 2000
+    max_tokens: 10000
 
   risk_narrative:
     model:    "glm-5.2"
@@ -51,7 +70,7 @@ agents:
     fallback_2: "qwen2.5-14b"
     fallback_3: "gemini-2.5-flash"
     temperature: 0.1
-    max_tokens: 1500
+    max_tokens: 10000
 
   growth_valuation:
     model:    "gemini-flash"
@@ -59,7 +78,7 @@ agents:
     fallback_2: "qwen2.5-14b"
     fallback_3: "gemini-2.5-flash"
     temperature: 0.2
-    max_tokens: 2000
+    max_tokens: 10000
 
   market_regime:
     model:    "minimax-m2.1"
@@ -67,7 +86,7 @@ agents:
     fallback_2: "qwen2.5-14b"
     fallback_3: "gemini-2.5-flash"
     temperature: 0.2
-    max_tokens: 2500
+    max_tokens: 10000
 
   evidence_auditor:
     model:    "gpt-oss-120b"
@@ -75,7 +94,7 @@ agents:
     fallback_2: "qwen2.5-14b"
     fallback_3: "gemini-2.5-flash"
     temperature: 0.1
-    max_tokens: 2000
+    max_tokens: 10000
 
   bull_debate:
     model:    "kimi-k2.5"
@@ -83,7 +102,7 @@ agents:
     fallback_2: "qwen2.5-14b"
     fallback_3: "gemini-2.5-flash"
     temperature: 0.5
-    max_tokens: 2500
+    max_tokens: 10000
 
   bear_debate:
     model:    "kimi-k2.5"
@@ -91,7 +110,7 @@ agents:
     fallback_2: "qwen2.5-14b"
     fallback_3: "gemini-2.5-flash"
     temperature: 0.5
-    max_tokens: 2500
+    max_tokens: 10000
 
   cio:
     model:    "deepseek-v4-pro"
@@ -99,7 +118,7 @@ agents:
     fallback_2: "qwen2.5-14b"
     fallback_3: "gemini-2.5-flash"
     temperature: 0.1
-    max_tokens: 3000
+    max_tokens: 10000
 
 scoring_weights:
   fundamental:    0.25

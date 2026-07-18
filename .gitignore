@@ -12,3 +12,4 @@ local
 # ignore generated JSON reports
 report*.json
 reports
+Archive.zip

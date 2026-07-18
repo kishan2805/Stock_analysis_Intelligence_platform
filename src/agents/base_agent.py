@@ -222,8 +222,7 @@ class BaseAgent:
         """
         def _replace(match: re.Match) -> str:
             inner = match.group(1)
-            inner = re.sub(r"[\r\n]+", " ", inner)
-            inner = re.sub(r"[ \t]{2,}", " ", inner)
+            inner = re.sub(r"\s+", " ", inner).strip()
             return f'"{inner}"'
 
         return re.sub(r'"((?:\\.|[^"\\])*)"', _replace, text, flags=re.DOTALL)
@@ -347,8 +346,8 @@ class BaseAgent:
         text = self._strip_fences(text)
 
         # Build candidates in order from least to most aggressive
-        candidates = [text]
-        candidates.append(self._normalize_string_whitespace(text))
+        normalized = self._normalize_string_whitespace(text)
+        candidates = [normalized, text]
         candidates.append(self._repair_json(text))
         candidates.append(self._normalize_string_whitespace(self._repair_json(text)))
 
