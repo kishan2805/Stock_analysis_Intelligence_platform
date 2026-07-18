@@ -37,7 +37,7 @@ If evidence is unavailable, use score 0 and evidence "No supporting data"."""
             raw = self.llm.complete(
                 system_prompt=self._LOCAL_GEMMA_PROMPT if is_local_gemma else self.system_prompt,
                 user_message=user_msg,
-                temperature=getattr(agent_cfg, "temperature", 0.2),
+                temperature=0.0 if is_local_gemma else getattr(agent_cfg, "temperature", 0.2),
                 max_tokens=700 if is_local_gemma else getattr(agent_cfg, "max_tokens", 2000),
                 response_format="json",
             )

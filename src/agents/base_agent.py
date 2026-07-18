@@ -216,10 +216,11 @@ class BaseAgent:
         try:
             agent_cfg = self.config.agents.get(self.AGENT_NAME, {})
             user_msg = self._build_user_message(kg, kwargs.get("extra"))
+            is_local_gemma = self.llm.get_model_name().lower().startswith("gemma3:4b")
             raw = self.llm.complete(
                 system_prompt=self.system_prompt,
                 user_message=user_msg,
-                temperature=getattr(agent_cfg, "temperature", 0.2),
+                temperature=0.0 if is_local_gemma else getattr(agent_cfg, "temperature", 0.2),
                 max_tokens=getattr(agent_cfg, "max_tokens", 2000),
                 response_format="json",
             )

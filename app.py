@@ -31,7 +31,7 @@ if "prefill_ticker" in st.session_state:
     st.session_state["main_ticker"] = st.session_state.pop("prefill_ticker")
 with st.form("analysis_form"):
     col1, col2, col3 = st.columns(3)
-    ticker = col1.text_input("Ticker", key="main_ticker", placeholder="RELIANCE.NS or AAPL")
+    ticker_input = col1.text_input("Ticker", key="main_ticker", placeholder="RELIANCE.NS or AAPL")
     exchange = col2.selectbox("Exchange", ["IN", "US"])
     duration = col3.selectbox("Horizon (months)", [6, 12, 18, 24, 36, 60], index=2)
     depth = st.radio("Analysis Depth", ["quick", "balanced", "premium"],
@@ -39,7 +39,10 @@ with st.form("analysis_form"):
     skip_debate = st.checkbox("Skip debate (faster)", value=False)
     submitted = st.form_submit_button("Analyse", type="primary")
 
-if submitted and config and ticker:
+if submitted and config and ticker_input.strip():
+    # Keep Streamlit handoffs identical to CLI runs (AAPL, not aapl).
+    ticker = ticker_input.strip().upper()
+    st.caption(f"Run settings: {ticker} · {exchange} · {duration} months · {depth} · debate {'skipped' if skip_debate else 'enabled'}")
     with st.spinner("Running SIAP pipeline..."):
         try:
             result = asyncio.run(
@@ -98,17 +101,27 @@ if submitted and config and ticker:
                         elif name == "risk_narrative":
                             score = "narrative only"
                         else:
-                            score = report.get("score") or report.get("moat_score") or "N/A"
+                            score = report.get("score")
+                            if score is None:
+                                score = report.get("moat_score")
+                            if score is None:
+                                score = "N/A"
                         model = report.get("_model_used", "N/A")
                         # Keep a single Arrow-compatible type; some agents do
                         # not have a numeric score and use the N/A marker.
-                        agent_data.append({"Agent": str(name), "Score": str(score), "Model": str(model)})
+                        agent_data.append({
+                            "Agent": str(name),
+                            "Score": str(score),
+                            "Status": "ERROR: " + str(report["error"])[:60] if report.get("error") else "OK",
+                            "Model": str(model),
+                        })
 
                 det_risk = result.get("det_risk") or {}
                 if det_risk:
                     agent_data.append({
                         "Agent": "deterministic_risk",
                         "Score": str(det_risk.get("det_risk_score", "N/A")),
+                        "Status": "OK",
                         "Model": "Python rules",
                     })
 
