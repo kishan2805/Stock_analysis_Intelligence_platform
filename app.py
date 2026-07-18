@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from src.utils.config_loader import load_config
 from src.pipeline.orchestrator import PipelineOrchestrator
+from src.data.intelligence_builder import MarketDataUnavailableError
 
 st.set_page_config(page_title="SIAP v2.5", layout="wide")
 st.title("Hedge Fund Intelligence Platform v2.5")
@@ -35,7 +36,7 @@ with st.form("analysis_form"):
     duration = col3.selectbox("Horizon (months)", [6, 12, 18, 24, 36, 60], index=2)
     depth = st.radio("Analysis Depth", ["quick", "balanced", "premium"],
                      index=1, horizontal=True)
-    skip_debate = st.checkbox("Skip debate (faster)")
+    skip_debate = st.checkbox("Skip debate (faster)", value=False)
     submitted = st.form_submit_button("Analyse", type="primary")
 
 if submitted and config and ticker:
@@ -56,6 +57,16 @@ if submitted and config and ticker:
             tab1, tab2, tab3, tab4 = st.tabs(["Final Report", "Agent Scores", "Debate", "Raw JSON"])
 
             with tab1:
+                data_gaps = result.get("kg_metadata", {}).get("data_gaps", [])
+                failed_agents = [
+                    name for name, report in result.get("agent_reports", {}).items()
+                    if isinstance(report, dict) and report.get("error")
+                ]
+                data_gaps = list(data_gaps) + [f"agent:{name}" for name in failed_agents]
+                if result.get("audited_bundle", {}).get("error"):
+                    data_gaps.append("evidence_auditor")
+                if data_gaps:
+                    st.warning("Data quality: Degraded — missing " + ", ".join(data_gaps))
                 col_l, col_r = st.columns([2, 1])
                 with col_l:
                     st.metric("Final Rating", f"{cio.get('final_rating', 'N/A')}/10")
@@ -82,9 +93,24 @@ if submitted and config and ticker:
                 agent_data = []
                 for name, report in result.get("agent_reports", {}).items():
                     if isinstance(report, dict):
-                        score = report.get("score") or report.get("moat_score") or "N/A"
+                        if name == "market_regime":
+                            score = f"multiplier {report.get('sector_regime_multiplier', 'N/A')}"
+                        elif name == "risk_narrative":
+                            score = "narrative only"
+                        else:
+                            score = report.get("score") or report.get("moat_score") or "N/A"
                         model = report.get("_model_used", "N/A")
-                        agent_data.append({"Agent": name, "Score": score, "Model": model})
+                        # Keep a single Arrow-compatible type; some agents do
+                        # not have a numeric score and use the N/A marker.
+                        agent_data.append({"Agent": str(name), "Score": str(score), "Model": str(model)})
+
+                det_risk = result.get("det_risk") or {}
+                if det_risk:
+                    agent_data.append({
+                        "Agent": "deterministic_risk",
+                        "Score": str(det_risk.get("det_risk_score", "N/A")),
+                        "Model": "Python rules",
+                    })
 
                 if agent_data:
                     st.dataframe(agent_data, width="stretch")
@@ -95,6 +121,10 @@ if submitted and config and ticker:
                     st.write(f"**{k}**: {v}")
 
             with tab3:
+                if debate and debate.get("error"):
+                    st.error(f"Debate failed: {debate['error']}")
+                    if debate.get("transcript"):
+                        st.caption("The partial transcript is shown below.")
                 if debate and debate.get("transcript"):
                     for entry in debate["transcript"]:
                         with st.expander(f"Round {entry['round']} — {entry['role'].upper()}"):
@@ -104,12 +134,14 @@ if submitted and config and ticker:
                     st.metric("Bear Conviction", f"{debate.get('bear_conviction', 'N/A')}/10")
                     if debate.get("high_uncertainty"):
                         st.warning("HIGH UNCERTAINTY: Bull/Bear spread > 3 points")
-                else:
-                    st.info("Debate skipped or no transcript available.")
+                elif not (debate and debate.get("error")):
+                    st.info("Debate was skipped because the checkbox was selected.")
 
             with tab4:
                 st.json(result)
 
+        except MarketDataUnavailableError as e:
+            st.error(str(e))
         except Exception as e:
             st.error(f"Pipeline failed: {e}")
             import traceback

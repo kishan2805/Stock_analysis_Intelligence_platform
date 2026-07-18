@@ -21,7 +21,19 @@ class YouTubeScannerService:
         self.transcripts = TranscriptFetcher(self.cache, groq, cfg.transcription.translation_model, cfg.transcription.caption_translation_model)
         self.extractor = ExtractorAgent(self.cache, groq, cfg.extraction.model, cfg.extraction.temperature)
 
-    async def scan(self, urls: list[str], lookback_days: int, max_videos: int, top_n: int) -> dict:
+    async def scan(
+        self,
+        urls: list[str],
+        lookback_days: int,
+        max_videos: int,
+        top_n: int,
+        skip_debate: bool | None = None,
+    ) -> dict:
+        """Scan videos and run deep-dives.
+
+        ``skip_debate`` is a per-run user choice. Configuration is only the
+        default; it must never override an explicit checkbox selection.
+        """
         videos, errors = [], []
         for url in urls:
             found, skipped = await asyncio.to_thread(scan_url, url, lookback_days, max_videos, True)
@@ -42,7 +54,20 @@ class YouTubeScannerService:
             async with sem:
                 self.progress(f"Deep-diving {stock.ticker}")
                 try:
-                    return stock.ticker, await PipelineOrchestrator(self.config).run(stock.ticker, "IN", 18, "quick", skip_debate=True)
+                    settings = self.config.youtube_signals.deep_dive
+                    run_skip_debate = settings.skip_debate if skip_debate is None else skip_debate
+                    def run_pipeline():
+                        return asyncio.run(PipelineOrchestrator(self.config).run(
+                            stock.ticker, "IN", 18, settings.execution_mode,
+                            skip_debate=run_skip_debate,
+                        ))
+                    result = await asyncio.wait_for(
+                        asyncio.to_thread(run_pipeline), timeout=settings.timeout_seconds,
+                    )
+                    return stock.ticker, result
+                except asyncio.TimeoutError:
+                    errors.append(f"Deep-dive {stock.ticker}: timed out after {settings.timeout_seconds}s; neutral ranking score used")
+                    return stock.ticker, None
                 except Exception as exc:
                     errors.append(f"Deep-dive {stock.ticker}: {exc}")
                     return stock.ticker, None
@@ -58,9 +83,15 @@ class YouTubeScannerService:
             deep_result = deep_results.get(stock.ticker) or {}
             model = (cio or {}).get("_model_used")
             quality_notes = list(deep_result.get("kg_metadata", {}).get("data_gaps", []))
+            failed_agents = [
+                name for name, report in (deep_result.get("agent_reports") or {}).items()
+                if isinstance(report, dict) and report.get("error")
+            ]
+            quality_notes.extend(f"agent:{name}" for name in failed_agents)
+            debate_error = (deep_result.get("debate") or {}).get("error")
+            if debate_error:
+                quality_notes.append("debate_failed")
             if not cio:
                 quality_notes.append("HFIP deep-dive failed; neutral ranking score used")
-            if model and model.startswith("gemma3:4b"):
-                quality_notes.append("Gemma 3 4B context limit excluded raw financial statements")
-            reports.append(RankedStockReport(ticker=stock.ticker, company_name=stock.company_name, conviction_score=conviction, rank=rank, suggested_buy_price=min(entry) if entry else None, target_price=sum(target)/len(target) if target else None, stop_loss=max(stop) if stop else None, buy_side_view="Channel-stated rationale: " + "; ".join(filter(None, [c.rationale_snippet for c in stock.calls[:3]])), sell_side_view=(cio or {}).get("thesis_invalidating_risk") or "No independent downside narrative was available; verify the underlying video evidence.", source_channels=stock.channels, mention_count=stock.mention_count, hfip_rating=(cio or {}).get("final_rating"), hfip_model=model, data_quality="Complete" if not quality_notes else "Degraded", data_quality_notes=quality_notes, sector=stock.sector, channel_price_note="Prices shown are only levels explicitly stated by channels; HFIP buy-below is a separate valuation guardrail."))
+            reports.append(RankedStockReport(ticker=stock.ticker, company_name=stock.company_name, conviction_score=conviction, rank=rank, suggested_buy_price=min(entry) if entry else None, target_price=sum(target)/len(target) if target else None, stop_loss=max(stop) if stop else None, buy_side_view="Channel-stated rationale: " + "; ".join(filter(None, [c.rationale_snippet for c in stock.calls[:3]])), sell_side_view=(cio or {}).get("thesis_invalidating_risk") or "No independent downside narrative was available; verify the underlying video evidence.", source_channels=stock.channels, mention_count=stock.mention_count, hfip_rating=(cio or {}).get("final_rating"), hfip_model=model, hfip_execution_mode=self.config.youtube_signals.deep_dive.execution_mode, data_quality="Complete" if not quality_notes else "Degraded", data_quality_notes=quality_notes, sector=stock.sector, channel_price_note="Prices shown are only levels explicitly stated by channels; HFIP buy-below is a separate valuation guardrail."))
         return {"reports": reports, "stocks": stocks, "unresolved": unresolved, "errors": errors, "videos": videos}

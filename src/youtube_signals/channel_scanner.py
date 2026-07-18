@@ -22,6 +22,9 @@ def scan_url(url: str, lookback_days: int, max_videos: int, include_shorts: bool
         # Newer yt-dlp releases enable only Deno by default. Node is already
         # installed on many developer machines and is sufficient for EJS.
         opts["js_runtimes"] = {"node": {"path": node}}
+        # yt-dlp's official EJS component solves YouTube's current JS
+        # challenges. Without it, Shorts may expose no usable audio format.
+        opts["remote_components"] = {"ejs:github"}
     if ffmpeg := get_ffmpeg_path():
         opts["ffmpeg_location"] = ffmpeg
     try:

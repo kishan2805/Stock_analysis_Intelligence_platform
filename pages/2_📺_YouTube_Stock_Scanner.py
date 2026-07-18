@@ -18,6 +18,7 @@ with st.form("youtube_scan"):
     lookback = c1.selectbox("Channel lookback", [7, 14, 30], index=1)
     max_videos = c2.slider("Videos per channel", 1, 10, 4)
     top_n = c3.slider("Ranked stocks", 1, 6, 5)
+    skip_debate = st.checkbox("Skip HFIP bull/bear debate (faster)", value=False)
     submitted = st.form_submit_button("Scan public videos", type="primary")
 
 if submitted:
@@ -28,7 +29,9 @@ if submitted:
         status = st.status("Starting scan...", expanded=True)
         def progress(message): status.write(message)
         try:
-            result = asyncio.run(YouTubeScannerService(load_config(), progress).scan(urls, lookback, max_videos, top_n))
+            result = asyncio.run(YouTubeScannerService(load_config(), progress).scan(
+                urls, lookback, max_videos, top_n, skip_debate=skip_debate
+            ))
             st.session_state["youtube_result"] = result
             status.update(label="Scan complete", state="complete")
         except Exception as exc:
@@ -46,7 +49,7 @@ if result:
             a.metric("Channel entry", report.suggested_buy_price or "Not stated")
             b.metric("Channel target", report.target_price or "Not stated")
             c.metric("Channel stop loss", report.stop_loss or "Not stated")
-            st.caption(f"{report.mention_count} video(s) · {', '.join(report.source_channels)} · HFIP rating: {report.hfip_rating or 'Unavailable'}/10 · HFIP model: {report.hfip_model or 'Unavailable'}")
+            st.caption(f"{report.mention_count} video(s) · {', '.join(report.source_channels)} · HFIP {report.hfip_execution_mode} rating: {report.hfip_rating or 'Unavailable'}/10 · HFIP model: {report.hfip_model or 'Unavailable'}")
             if report.data_quality == "Complete":
                 st.success("Data quality: Complete")
             else:
@@ -54,7 +57,8 @@ if result:
             st.write("**Buy-side evidence:** " + report.buy_side_view)
             st.write("**Risk view:** " + report.sell_side_view)
             st.caption(report.channel_price_note)
-            if st.button(f"Deep-dive in main analyser: {report.ticker}", key=report.ticker):
+            st.caption("The main analyser defaults to balanced analysis; its rating may differ from this quick screen.")
+            if st.button(f"Open full analysis: {report.ticker}", key=report.ticker):
                 st.session_state["prefill_ticker"] = report.ticker
                 st.switch_page("app.py")
     with st.expander("All resolved stocks"):

@@ -99,9 +99,17 @@ class DebateOrchestrator:
             return self._finalize(transcript, error=str(e))
 
     def _call(self, llm, round_id, reports, context, prior_round=None) -> str:
+        is_local_gemma = llm.get_model_name().lower().startswith("gemma3:4b")
+        if is_local_gemma:
+            # Debate used to send complete specialist reports (including long
+            # evidence lists) to a 2k-context model. Ollama then spent the
+            # entire request on prompt processing or timed out. Preserve only
+            # the score-bearing facts needed for the argument.
+            reports = self._compact_reports(reports)
         user_msg = f"Context: {json.dumps(context)}\n\nReports: {json.dumps(reports, default=str)}"
         if prior_round:
-            user_msg += f"\n\nPrevious round:\n{prior_round}"
+            prior = str(prior_round)
+            user_msg += f"\n\nPrevious round:\n{prior[-2500:] if is_local_gemma else prior}"
 
         instruction = self._load_round_instruction(round_id)
         return llm.complete(
@@ -109,8 +117,29 @@ class DebateOrchestrator:
             user_message=user_msg,
             response_format="text",
             temperature=0.5,
-            max_tokens=2500
+            max_tokens=500 if is_local_gemma else 2500,
         )
+
+    @staticmethod
+    def _compact_reports(reports: dict) -> dict:
+        """Keep debate evidence within Gemma 4B's practical context window."""
+        allowed = {
+            "agent", "ticker", "score", "moat_score", "confidence", "error",
+            "bull_points", "bear_points", "key_metrics_cited", "key_macro_signals",
+            "valuation_verdict", "growth_drivers", "ranked_risks",
+            "sector_regime_multiplier", "regime_label", "thesis_invalidating_risk",
+        }
+        compact = {}
+        for name, report in (reports or {}).items():
+            if not isinstance(report, dict):
+                compact[name] = report
+                continue
+            item = {key: report[key] for key in allowed if key in report}
+            for key in ("bull_points", "bear_points", "growth_drivers", "ranked_risks"):
+                if isinstance(item.get(key), list):
+                    item[key] = [str(value)[:180] for value in item[key][:2]]
+            compact[name] = item
+        return compact
 
     def _load_round_instruction(self, round_id: str) -> str:
         instructions = {

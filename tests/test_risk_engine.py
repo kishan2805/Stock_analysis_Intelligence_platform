@@ -33,3 +33,8 @@ def test_empty_kg_handles_gracefully():
     assert "det_risk_score" in result
     assert "risk_level" in result
     assert result["risk_level"] in ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+
+
+def test_yahoo_percentage_debt_equity_is_normalised_before_risk_scoring():
+    from src.data.stock_fetcher import _normalise_debt_equity
+    assert _normalise_debt_equity(59.002) == 0.59

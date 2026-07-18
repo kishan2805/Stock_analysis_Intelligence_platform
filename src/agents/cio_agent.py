@@ -69,6 +69,14 @@ def _safe(val, default=5.0):
         return default
 
 
+def _safe_regime_multiplier(val) -> float:
+    """Regime is deliberately signed (-1.5 to +1.5), unlike 0–10 scores."""
+    try:
+        return max(-1.5, min(1.5, float(val)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _verdict(score: float) -> tuple[str, str]:
     for threshold, v, c in _VERDICT_BANDS:
         if score >= threshold:
@@ -104,8 +112,8 @@ def _find_report(reports: dict, pipeline_key: str) -> dict:
     return {}
 
 
-def _extract_score(reports: dict, pipeline_key: str, default: float = 5.0) -> float:
-    """Extract a 0-10 score for an agent, trying all known key variants."""
+def _extract_score(reports: dict, pipeline_key: str, default: float | None = None) -> float | None:
+    """Extract a score; missing data stays missing instead of becoming 5.0."""
     report = _find_report(reports, pipeline_key)
     if not report:
         return default
@@ -178,18 +186,23 @@ class CIOAgent:
         validated = audited_bundle.get("validated_reports", {})
 
         # Extract scores using alias-aware lookup
-        fund   = _extract_score(validated, "fundamental")
-        macro  = _extract_score(validated, "macro")
-        moat   = _extract_score(validated, "moat")
-        growth = _extract_score(validated, "growth")
+        raw_scores = {
+            "fundamental": _extract_score(validated, "fundamental"),
+            "macro": _extract_score(validated, "macro"),
+            "moat": _extract_score(validated, "moat"),
+            "growth": _extract_score(validated, "growth"),
+        }
+        missing_agents = [name for name, value in raw_scores.items() if value is None]
+        available_scores = {name: value for name, value in raw_scores.items() if value is not None}
+        fund = float(available_scores.get("fundamental", 0.0))
+        macro = float(available_scores.get("macro", 0.0))
+        moat = float(available_scores.get("moat", 0.0))
+        growth = float(available_scores.get("growth", 0.0))
         risk_s = _safe(det_risk.get("det_risk_score"))
 
         # Regime multiplier from market_regime report
         regime_report = _find_report(validated, "market_regime")
-        regime = _safe(
-            regime_report.get("sector_regime_multiplier", 0),
-            default=0.0,
-        )
+        regime = _safe_regime_multiplier(regime_report.get("sector_regime_multiplier", 0))
 
         confidence_adj = float(audited_bundle.get("confidence_adjustment") or 0)
         reliability    = float(audited_bundle.get("reliability_score") or 5.0)
@@ -210,19 +223,32 @@ class CIOAgent:
             except Exception:
                 return fallback
 
-        w_fund   = _w("fundamental", 0.25)
-        w_macro  = _w("macro",       0.20)
-        w_moat   = _w("moat",        0.15)
-        w_growth = _w("growth",      0.20)
+        configured_weights = {
+            "fundamental": _w("fundamental", 0.25),
+            "macro": _w("macro", 0.20),
+            "moat": _w("moat", 0.15),
+            "growth": _w("growth", 0.20),
+        }
+        # Architecture §13: never substitute a neutral 5 for a failed agent.
+        # Redistribute its weight proportionally across available specialist scores.
+        available_weight = sum(configured_weights[name] for name in available_scores)
+        missing_weight = sum(configured_weights[name] for name in missing_agents)
+        used_weights = {name: 0.0 for name in configured_weights}
+        if available_weight > 0:
+            for name in available_scores:
+                used_weights[name] = configured_weights[name] + missing_weight * (
+                    configured_weights[name] / available_weight
+                )
+        w_fund = used_weights["fundamental"]
+        w_macro = used_weights["macro"]
+        w_moat = used_weights["moat"]
+        w_growth = used_weights["growth"]
         w_risk   = _w("risk",        0.20)
 
         # Step 1 — weighted raw
         risk_contribution = (10 - risk_s) * w_risk
         weighted_raw = round(
-            fund   * w_fund  +
-            macro  * w_macro +
-            moat   * w_moat  +
-            growth * w_growth +
+            sum(float(value) * used_weights[name] for name, value in available_scores.items()) +
             risk_contribution,
             3,
         )
@@ -238,12 +264,12 @@ class CIOAgent:
         after_debate = round(after_confidence + debate_adj, 3)
 
         # Step 4 — regime multiplier
-        regime_clamped = max(-1.5, min(1.5, regime))
+        regime_clamped = regime
         final = round(max(0.0, min(10.0, after_debate + regime_clamped)), 2)
 
         verdict, conviction = _verdict(final)
 
-        agent_scores_list = [fund, macro, moat, growth, 10 - risk_s]
+        agent_scores_list = list(available_scores.values()) + [10 - risk_s]
         spread = max(agent_scores_list) - min(agent_scores_list)
         uncertainty = "HIGH" if spread > 3.0 else ("MEDIUM" if spread > 1.5 else "LOW")
         if debate_result.get("high_uncertainty"):
@@ -279,19 +305,20 @@ class CIOAgent:
 
             "score_calculation": {
                 "agent_scores":       {
-                    "fundamental": fund,
-                    "macro":       macro,
-                    "moat":        moat,
-                    "growth":      growth,
+                    "fundamental": raw_scores["fundamental"],
+                    "macro":       raw_scores["macro"],
+                    "moat":        raw_scores["moat"],
+                    "growth":      raw_scores["growth"],
                     "det_risk":    risk_s,
                 },
                 "weights":            {
-                    "fundamental": w_fund,
-                    "macro":       w_macro,
-                    "moat":        w_moat,
-                    "growth":      w_growth,
+                    "fundamental": used_weights["fundamental"],
+                    "macro":       used_weights["macro"],
+                    "moat":        used_weights["moat"],
+                    "growth":      used_weights["growth"],
                     "risk":        w_risk,
                 },
+                "missing_agents": missing_agents,
                 "weighted_raw":       weighted_raw,
                 "confidence_penalty": round(confidence_adj, 3),
                 "debate_adjustment":  debate_adj,

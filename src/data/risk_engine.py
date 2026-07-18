@@ -33,7 +33,11 @@ class DeterministicRiskEngine:
         scores["macro"] = self._score_macro(kg)
 
         raw_total = sum(scores.values())
-        normalised = round(raw_total / 10, 2)
+        # Competitive, regulatory and macro are deliberately simplified
+        # (their current maxima are 5, 3 and 4 rather than 20, 15 and 15).
+        # Divide by 5 so the resulting 0–10 scale still reflects material
+        # financial/governance flags instead of systematically understating risk.
+        normalised = round(min(10.0, raw_total / 5), 2)
 
         return {
             "det_risk_score": normalised,
@@ -59,7 +63,7 @@ class DeterministicRiskEngine:
 
     def _score_governance(self, pledge_pct, rpt_pct, auditor_change, flags):
         score = 0
-        if pledge_pct > 40:   score += 15
+        if pledge_pct > 40:   score += 16
         elif pledge_pct > 25: score += 10
         elif pledge_pct > 10: score += 5
         elif pledge_pct > 5:  score += 2
@@ -88,7 +92,7 @@ class DeterministicRiskEngine:
 
     def _band(self, score):
         if score >= 7.5: return "CRITICAL"
-        if score >= 5.5: return "HIGH"
+        if score >= 5.0: return "HIGH"
         if score >= 3.5: return "MEDIUM"
         return "LOW"
 

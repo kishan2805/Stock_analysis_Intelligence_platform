@@ -2,15 +2,8 @@
 src/models/ollama_client.py  — v2.5.1
 
 FIX: Added num_ctx to Ollama options.
-gemma3:4b defaults to 2048 token context. Without num_ctx in the request,
-Ollama uses whatever the model was loaded with — often 2048.
-We now set num_ctx explicitly based on the model name so the model
-actually processes the full prompt we send. For gemma3:4b this is kept
-at 2048 (hardware limit). For larger models we set higher values.
-
-The real fix for gemma3:4b is the context budget in base_agent.py
-which ensures we never send a prompt that exceeds 2048 tokens.
-This num_ctx setting is a belt-and-suspenders guard.
+  Gemma 3 4B supports a large model context, but local hardware determines
+  the practical request size. The configured default is 2,048 tokens.
 """
 
 import httpx
@@ -41,6 +34,16 @@ _MODEL_NUM_CTX: dict[str, int] = {
     "default":      8192,
 }
 
+# A 4B local model can accept a 10k context, but asking it to produce 10k
+# tokens makes ordinary agent calls painfully slow and risks incomplete JSON.
+_MODEL_MAX_OUTPUT_TOKENS: dict[str, int] = {
+    "gemma3:4b": 900,
+}
+
+_MODEL_TIMEOUT_SECONDS: dict[str, int] = {
+    "gemma3:4b": 180,
+}
+
 
 def _get_num_ctx(model_name: str) -> int:
     model_lower = (model_name or "").lower()
@@ -50,10 +53,27 @@ def _get_num_ctx(model_name: str) -> int:
     return _MODEL_NUM_CTX["default"]
 
 
+def _get_max_output_tokens(model_name: str, requested: int) -> int:
+    model_lower = (model_name or "").lower()
+    for prefix, limit in _MODEL_MAX_OUTPUT_TOKENS.items():
+        if model_lower.startswith(prefix):
+            return min(requested, limit)
+    return requested
+
+
+def _get_timeout_seconds(model_name: str) -> int:
+    model_lower = (model_name or "").lower()
+    for prefix, timeout in _MODEL_TIMEOUT_SECONDS.items():
+        if model_lower.startswith(prefix):
+            return timeout
+    return 180
+
+
 class OllamaClient(BaseLLMClient):
-    def __init__(self, model: str, base_url: str = "http://localhost:11434"):
+    def __init__(self, model: str, base_url: str = "http://localhost:11434", num_ctx_override: int | None = None):
         self.model = model
         self.base_url = base_url.rstrip("/")
+        self.num_ctx_override = num_ctx_override
 
     def complete(
         self,
@@ -63,7 +83,9 @@ class OllamaClient(BaseLLMClient):
         max_tokens: int = 2000,
         response_format: str = "json",
     ) -> str:
-        num_ctx = _get_num_ctx(self.model)
+        num_ctx = self.num_ctx_override or _get_num_ctx(self.model)
+        output_tokens = _get_max_output_tokens(self.model, max_tokens)
+        timeout_seconds = _get_timeout_seconds(self.model)
 
         payload = {
             "model": self.model,
@@ -73,7 +95,7 @@ class OllamaClient(BaseLLMClient):
             ],
             "options": {
                 "temperature": temperature,
-                "num_predict": max_tokens,
+                "num_predict": output_tokens,
                 "num_ctx":     num_ctx,       # explicitly set context window
             },
             "stream": False,
@@ -85,7 +107,7 @@ class OllamaClient(BaseLLMClient):
             r = httpx.post(
                 f"{self.base_url}/api/chat",
                 json=payload,
-                timeout=180,  # increased from 120 — large models need more time
+                timeout=timeout_seconds,
             )
             r.raise_for_status()
             content = r.json()["message"]["content"]
@@ -96,7 +118,7 @@ class OllamaClient(BaseLLMClient):
             )
             return content
         except httpx.TimeoutException:
-            logger.error(f"[Ollama] {self.model}: request timed out after 180s")
+            logger.error(f"[Ollama] {self.model}: request timed out after {timeout_seconds}s")
             raise
         except Exception as e:
             logger.error(f"[Ollama] {self.model}: {e}")

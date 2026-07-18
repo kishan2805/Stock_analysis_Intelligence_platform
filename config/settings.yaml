@@ -8,6 +8,9 @@
 ollama:
   base_url: "http://localhost:11434"
   office_model: "gemma3:4b"
+  # Gemma 3 supports 10k+ context, but 2048 is the responsive setting on
+  # this local machine. Increase only on hardware that benchmarks well.
+  gemma3_context_tokens: 2048
 
 api_keys:
   gemini:     "${GEMINI_API_KEY}"
@@ -21,7 +24,13 @@ youtube_signals:
     lookback_days_default: 14
     max_videos_per_channel: 6
     max_deep_dives: 6
-    deep_dive_concurrency: 2
+    # One local Gemma server should process one stock pipeline at a time.
+    deep_dive_concurrency: 1
+  deep_dive:
+    # Architecture §6: scanner deep-dives reuse the quick HFIP mode.
+    execution_mode: "quick"
+    skip_debate: false
+    timeout_seconds: 360
   transcription:
     prefer_captions: true
     translation_model: "whisper-large-v3" # turbo cannot translate audio to English

@@ -47,7 +47,9 @@ def get_llm(model_name: str, config) -> BaseLLMClient:
 
     # Everything else goes through Ollama
     base_url = getattr(config.ollama, "base_url", "http://localhost:11434")
-    return OllamaClient(model_name, base_url)
+    gemma_context = getattr(config.ollama, "gemma3_context_tokens", None)
+    override = gemma_context if model_name.lower().startswith("gemma3:") else None
+    return OllamaClient(model_name, base_url, num_ctx_override=override)
 
 
 def get_llm_with_fallback(agent_name: str, config) -> BaseLLMClient:
