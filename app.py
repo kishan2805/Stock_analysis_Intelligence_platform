@@ -11,13 +11,13 @@ from src.pipeline.orchestrator import PipelineOrchestrator
 from src.data.intelligence_builder import MarketDataUnavailableError
 from src.utils.pdf_report import GLOSSARY, build_main_analysis_pdf
 
-st.set_page_config(page_title="SAIP — Stock Analysis", layout="wide")
-st.title("SAIP — Stock Analysis")
+st.set_page_config(page_title="SAIP — Stock Analysis Intelligence Platform", layout="wide")
+st.title("SAIP — Stock Analysis Intelligence Platform")
 st.caption("SAIP (Stock Analysis Intelligence Platform) · AI-powered multi-agent stock analysis")
 
 # Sidebar config
 with st.sidebar:
-    st.page_link("app.py", label="SAIP Stock Analysis", icon="📊")
+    st.page_link("app.py", label="SAIP Stock Analysis Intelligence Platform", icon="📊")
     st.page_link("pages/2_📺_YouTube_Stock_Scanner.py", label="YouTube Stock Scanner", icon="📺")
     st.page_link("pages/3_🔐_SAIP_Admin.py", label="SAIP Admin", icon="🔐")
     st.divider()
