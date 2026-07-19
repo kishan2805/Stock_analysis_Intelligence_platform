@@ -1,81 +1,224 @@
-# SAIP v2.5 — Stock_analysis_Intelligence_platform
+# SAIP
 
-AI-powered multi-agent stock analysis pipeline with 10 agents, evidence auditing,
-Bull vs Bear debate, and CIO multidimensional output.
+### Stock Analysis Intelligence Platform
 
-## Quick Start
+**SAIP** is a local-first, multi-agent equity-research workspace for single-stock analysis and public YouTube stock-signal screening. It combines deterministic market-data processing with specialised AI research agents, evidence checks, debate, and a final CIO-style investment view.
+
+> Informational research only - not investment advice. Always verify market data and make independent decisions.
+
+## What SAIP does
+
+| Surface | Purpose |
+|---|---|
+| **SAIP Stock Analysis** | Deep analysis for one NSE or US ticker, with a downloadable PDF report. |
+| **YouTube Stock Scanner** | Extracts explicit Indian-stock calls from public videos/channels, resolves tickers conservatively, scores them, and exports CSV/PDF results. |
+| **SAIP Admin** | Password-protected approval page for compute-heavy, all-user channel runs. |
+
+## Agent orchestration
+
+```mermaid
+flowchart TD
+    Input["Ticker + exchange + horizon"] --> KG["Intelligence Builder\nmarket data, news, regime"]
+    KG --> Graph["Shared KnowledgeGraph"]
+
+    Graph --> Fundamental["Fundamental Analyst"]
+    Graph --> Macro["Macro Analyst"]
+    Graph --> Moat["Moat Analyst"]
+    Graph --> Growth["Growth & Valuation Analyst"]
+    Graph --> RiskNarrative["Risk Narrative Analyst"]
+    Graph --> Regime["Market Regime Agent"]
+    Graph --> DetRisk["Deterministic Risk Engine\nPython rules"]
+
+    Fundamental --> Auditor["Evidence Auditor"]
+    Macro --> Auditor
+    Moat --> Auditor
+    Growth --> Auditor
+    RiskNarrative --> Auditor
+    Regime --> Auditor
+    DetRisk --> Auditor
+
+    Auditor --> Bull["Bull Case"]
+    Auditor --> Bear["Bear Case"]
+    Bull --> Debate["Structured Bull/Bear Debate"]
+    Bear --> Debate
+    Debate --> CIO["CIO Synthesis"]
+    Auditor --> CIO
+    CIO --> Report["SAIP report\nrating, verdict, risk, position sizing"]
+```
+
+The `KnowledgeGraph` is built once and shared with every specialist. This avoids duplicate data fetching and gives the Evidence Auditor and CIO one consistent evidence base.
+
+## YouTube signal flow
+
+```mermaid
+flowchart LR
+    URL["Public video or channel URL"] --> Video["yt-dlp video discovery"]
+    Video --> Transcript["Captions or Groq Whisper\nEnglish transcript"]
+    Transcript --> Extract["Explicit stock-call extraction"]
+    Extract --> Resolve["Strict NSE ticker resolution"]
+    Resolve --> Aggregate["Cross-video/channel aggregation"]
+    Aggregate --> DeepDive["SAIP quick deep-dive"]
+    DeepDive --> Rank["Rank score\n60% conviction + 40% SAIP rating"]
+    Rank --> Output["Ranked UI + CSV + PDF"]
+```
+
+Uncertain ticker matches are retained as **unresolved**; SAIP does not silently guess a symbol. The CSV includes those names separately with no rank or rating.
+
+## Quick start
+
+### 1. Prerequisites
+
+- Python 3.11+
+- [Ollama](https://ollama.com/) running locally if you use local models
+- A Groq API key for YouTube transcript translation/extraction
+- Optional Gemini, OpenAI, and Anthropic keys for configured API model fallbacks
+
+### 2. Create the environment
 
 ```bash
-# 1. Clone and setup
-git clone <repo>
+git clone <your-repository-url>
 cd hedge-fund-app
 
-# 2. Install dependencies
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
-
-# 3. Set up environment variables
-cp .env.example .env
-# Edit .env with your API keys:
-# - GEMINI_API_KEY (for fallback tier 4)
-# - OPENAI_API_KEY (optional)
-# - ANTHROPIC_API_KEY (optional)
-# - OLLAMA_BASE_URL (default: http://localhost:11434)
-# - OLLAMA_OFFICE_MODEL (default: qwen2.5-14b)
-
-# 4. Pull Ollama models (optional, for local fallbacks)
-ollama pull qwen2.5-14b
-ollama pull deepseek-v4-pro
-ollama pull glm-5.2
-
-# 5. Run analysis
-source /Users/kishan/Desktop/hedge-fund-app/venv/bin/activate
-
-python -m src/main.py --ticker RELIANCE.NS --exchange IN --duration 18
-
-# Or run with JSON output
-python -m src/main.py --ticker TCS.NS --exchange IN --duration 18 --format json --output report.json
-
-# Quick mode (faster, fewer agents)
-python -m src/main.py --ticker INFY.NS --exchange IN --depth quick
-
-# Skip debate for faster execution
-python -m src/main.py --ticker HDFCBANK.NS --exchange IN --no-debate
 ```
 
-## Model Cascade (4-Tier)
+### 3. Configure secrets
 
-Each agent tries models in this order:
+Create `.env` in the project root. Never commit this file.
 
-| Tier | Type | Example |
-|------|------|---------|
-| 1 | Primary (original default) | `deepseek-v4-pro`, `kimi-k2.5` |
-| 2 | Fallback 1 (original fallback) | `glm-5.2`, `gpt-oss-120b` |
-| 3 | Fallback 2 (Ollama local) | `qwen2.5-14b` (office model) |
-| 4 | Fallback 3 (Gemini API) | `gemini-2.5-flash` |
+```env
+# Required for YouTube transcript translation and call extraction
+GROQ_API_KEY=your_groq_key
 
-Configure the office model in `.env`:
+# Required only when those configured API fallbacks are used
+GEMINI_API_KEY=
+OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
+
+# Local Ollama configuration
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_OFFICE_MODEL=Qwen3:0.6b
+
+# Required only for the SAIP Admin page
+ADMIN_PASSWORD=choose-a-long-unique-password
 ```
-OLLAMA_OFFICE_MODEL=qwen2.5-14b
-```
 
-## Streamlit Dashboard
+Model names and fallback order live in [`config/settings.yaml`](config/settings.yaml). Pull or configure the local models you intend to use before running a full analysis.
+
+### 4. Start the web app
 
 ```bash
 streamlit run app.py
 ```
 
+Open the local URL printed by Streamlit. The app contains named pages for **SAIP Stock Analysis**, **YouTube Stock Scanner**, and **SAIP Admin**.
+
+### 5. Run from the command line
+
+```bash
+# Balanced analysis for an Indian equity
+python -m src.main --ticker RELIANCE.NS --exchange IN --duration 18
+
+# Faster quick analysis without debate
+python -m src.main --ticker INFY.NS --exchange IN --depth quick --no-debate
+
+# JSON output saved to a file
+python -m src.main --ticker TCS.NS --exchange IN --duration 18 --format json --output report.json
+```
+
+## Using the YouTube Scanner
+
+1. Enter a **unique subject/user ID**. It partitions saved channels, videos, scan runs, and artifacts.
+2. Paste public video/channel URLs for an immediate scan, or save channels in the channel library.
+3. Use the manual latest-unseen scan whenever you want a subject's enabled channels processed.
+4. Download ranked results as CSV or PDF.
+
+The scanner's rank score is:
+
+`60% channel conviction + 40% SAIP rating`
+
+Channel conviction is based on channel coverage, target consensus, and video recency.
+
+## Daily all-user scan and compute safety
+
+SAIP is designed for a personal laptop, so it never launches a full all-user analysis automatically.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Before11
+    Before11 --> PendingApproval: After 11:00 AM India time
+    PendingApproval --> Approved: Admin enters password and approves
+    Approved --> Running: Explicit admin action
+    Running --> Completed
+    PendingApproval --> [*]: No approval - no compute is used
+```
+
+- The scheduler can only create a **pending approval** after 11:00 AM India time.
+- Open **SAIP Admin**, enter `ADMIN_PASSWORD`, confirm compute use, and approve the daily run.
+- The admin can also manually run every enabled user's latest unseen videos at any time.
+- If the laptop is asleep/off, no analysis runs. Starting the scheduler later may queue a request, but still cannot run analysis without an admin click.
+
+Run the lightweight approval-queue worker:
+
+```bash
+venv/bin/python -m src.youtube_signals.scheduler
+```
+
+Or make one approval-queue check and exit:
+
+```bash
+venv/bin/python -m src.youtube_signals.scheduler --once
+```
+
+For background startup after login, configure this command with macOS `launchd`. For true 24/7 availability when the laptop is off, run SAIP on an always-on machine.
+
+## Data, artifacts, and privacy
+
+| Location | Contents | Git status |
+|---|---|---|
+| `user_database/saip_monitoring.sqlite3` | Subject-owned channels, processed videos, scan runs, approval state, artifact records | Ignored |
+| `output/youtube-runs/<run-id>/` | Generated YouTube CSV/PDF artifacts | Ignored |
+| `.cache/` | Rebuildable transcript/extraction and market-data caches | Ignored |
+| `.env` | API keys and admin password | Ignored |
+
+The local database is durable on your laptop but is not a backup. Back up `user_database/` separately if the saved channels and run history matter.
+
+## Report value guide
+
+| Value | Meaning |
+|---|---|
+| `N/A` | Not available from the current data or analysis output. |
+| `N/S` | Not stated by the source video. |
+| `ERROR` | A component failed; its output was not used as evidence. |
+| `Degraded` | A report is available, but one or more inputs, agents, or debate steps were unavailable. |
+
 ## Testing
 
 ```bash
-pytest tests/ -v
+pytest -q tests/test_youtube_signals.py
+pytest -q
 ```
 
-## Architecture
+The full suite includes network-dependent market-data regression tests. If Yahoo Finance or another upstream provider is unavailable, those integration tests may fail even when the local unit tests pass.
 
-- **Stage 1**: Intelligence Builder (Yahoo Finance + News + Regime data)
-- **Stage 2**: 6 Parallel Specialist Agents
-- **Stage 3**: Evidence Auditor (validates all reports)
-- **Stage 4**: Bull vs Bear Debate (8 rounds + Committee Q&A)
-- **Stage 5**: CIO Judgment (multidimensional output)
+## Project structure
 
-See `SIAP_v2_ARCHITECTURE.md` for full details.
+```text
+app.py                              Main SAIP Stock Analysis page
+pages/2_📺_YouTube_Stock_Scanner.py  Video/channel signal scanner
+pages/3_🔐_SAIP_Admin.py             Password-protected all-user controls
+src/agents/                         Specialist agents and evidence auditor
+src/data/                           KnowledgeGraph, market/news/regime fetchers, risk engine
+src/pipeline/                       Orchestration, parallel stage, debate stage
+src/youtube_signals/                Discovery, transcripts, extraction, ranking, monitoring
+config/settings.yaml                Model routing and feature configuration
+user_database/                      Ignored local persistent database
+```
+
+## Further documentation
+
+- [`local/HFIP_v2.5_ARCHITECTURE.md`](local/HFIP_v2.5_ARCHITECTURE.md) - core SAIP architecture and model routing history
+- [`local/YOUTUBE_STOCK_SCANNER_ARCHITECTURE.md`](local/YOUTUBE_STOCK_SCANNER_ARCHITECTURE.md) - scanner architecture and monitoring design
+- [`local/yt.md`](local/yt.md) - concise current YouTube flow and next-phase notes
