@@ -1,5 +1,6 @@
 .env
 .cache/
+user_database/
 __pycache__/
 *.pyc
 *.egg-info/
@@ -13,4 +14,4 @@ local
 report*.json
 reports
 Archive.zip
-output/youtube-runs
+output/youtube-runs/

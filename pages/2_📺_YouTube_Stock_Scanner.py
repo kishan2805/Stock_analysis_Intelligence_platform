@@ -5,58 +5,53 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 from src.utils.config_loader import load_config
-from src.utils.pdf_report import GLOSSARY, build_scanner_pdf
+from src.utils.pdf_report import GLOSSARY
 from src.youtube_signals import YouTubeScannerService
 from src.youtube_signals.exports import build_scan_csv
-from src.youtube_signals.monitoring import ChannelMonitoringService, ChannelStore
+from src.youtube_signals.monitoring import ChannelMonitoringService, ChannelStore, persist_run_artifacts
 
 st.set_page_config(page_title="YouTube Stock Scanner", layout="wide")
 st.title("📺 YouTube Stock Scanner")
 st.caption("Controlled beta — public videos only. Final rank score = 60% channel conviction + 40% SAIP rating. The shortlist is shown first; the CSV contains every deep-dived stock from the scan.")
+subject_id = st.text_input("Unique subject / user ID", key="youtube_subject_id", placeholder="e.g. client-001 or telegram-chat-123456", help="All saved channels, videos, runs, and artifacts are partitioned by this ID.")
 with st.expander("How to read values", expanded=False):
     for label, meaning in GLOSSARY:
         st.write(f"**{label}** - {meaning}")
 
 channel_store = ChannelStore()
 with st.expander("Saved channel library - latest one video per channel", expanded=False):
+    st.caption("Every enabled channel becomes eligible for a daily admin-approved run after 11:00 AM India time. Manual scans remain available anytime.")
     with st.form("add_saved_channel", clear_on_submit=True):
         saved_url = st.text_input("Channel URL", placeholder="https://www.youtube.com/@Channel/videos")
         saved_label = st.text_input("Label (optional)", placeholder="e.g. Groww")
         add_channel = st.form_submit_button("Save channel")
     if add_channel:
         try:
-            channel_store.add_channel(saved_url, saved_label)
+            channel_store.add_channel(subject_id, saved_url, saved_label)
             st.success("Channel saved.")
         except Exception as exc:
             st.error(str(exc))
-    saved_channels = channel_store.list_channels()
+    saved_channels = channel_store.list_channels(subject_id) if subject_id.strip() else []
     if saved_channels:
         for channel in saved_channels:
             left, middle, right = st.columns([5, 1, 1])
             left.write(f"**{channel.label}**  \\n{channel.url}")
             if middle.button("Disable" if channel.enabled else "Enable", key=f"saved-channel-toggle-{channel.id}"):
-                channel_store.set_enabled(channel.id, not channel.enabled)
+                channel_store.set_enabled(subject_id, channel.id, not channel.enabled)
                 st.rerun()
             if right.button("Remove", key=f"saved-channel-delete-{channel.id}"):
-                channel_store.delete_channel(channel.id)
+                channel_store.delete_channel(subject_id, channel.id)
                 st.rerun()
         if st.button("Analyse latest unseen video from every enabled channel", type="primary"):
             status = st.status("Starting saved-channel run...", expanded=True)
             try:
                 def progress(message): status.write(message)
                 run_id, monitored_result, monitored_videos = asyncio.run(
-                    ChannelMonitoringService(load_config(), channel_store, progress).run_latest()
+                    ChannelMonitoringService(load_config(), channel_store, subject_id, progress).run_latest()
                 )
-                output_dir = Path("output/youtube-runs") / run_id
-                output_dir.mkdir(parents=True, exist_ok=True)
-                csv_path = output_dir / "youtube_stock_scan.csv"
-                pdf_path = output_dir / "youtube_stock_scan.pdf"
-                csv_path.write_text(build_scan_csv(monitored_result), encoding="utf-8")
-                pdf_path.write_bytes(build_scanner_pdf(monitored_result, run_id))
-                channel_store.record_artifact(run_id, "csv", csv_path)
-                channel_store.record_artifact(run_id, "pdf", pdf_path)
+                artifact_paths = persist_run_artifacts(channel_store, subject_id, run_id, monitored_result)
                 st.session_state["youtube_result"] = monitored_result
-                st.session_state["youtube_monitoring_artifacts"] = {"run_id": run_id, "csv": csv_path, "pdf": pdf_path, "video_count": len(monitored_videos)}
+                st.session_state["youtube_monitoring_artifacts"] = {"run_id": run_id, "csv": artifact_paths["csv"], "pdf": artifact_paths["pdf"], "video_count": len(monitored_videos)}
                 status.update(label="Saved-channel run complete", state="complete")
             except Exception as exc:
                 status.update(label="Saved-channel run failed", state="error")
@@ -75,18 +70,25 @@ with st.form("youtube_scan"):
 
 if submitted:
     urls = [line.strip() for line in urls_text.splitlines() if line.strip()]
-    if not urls:
+    if not subject_id.strip():
+        st.error("Enter a unique subject / user ID before starting a scan.")
+    elif not urls:
         st.error("Add at least one public YouTube video or channel URL.")
     else:
         status = st.status("Starting scan...", expanded=True)
+        run_id = channel_store.start_run(subject_id, "manual_links")
         def progress(message): status.write(message)
         try:
             result = asyncio.run(YouTubeScannerService(load_config(), progress).scan(
                 urls, lookback, max_videos, top_n, skip_debate=skip_debate
             ))
+            channel_store.finish_run(subject_id, run_id, result, result.get("errors", []))
+            artifact_paths = persist_run_artifacts(channel_store, subject_id, run_id, result)
             st.session_state["youtube_result"] = result
+            st.session_state["youtube_monitoring_artifacts"] = {"run_id": run_id, "csv": artifact_paths["csv"], "pdf": artifact_paths["pdf"], "video_count": len(result.get("videos", []))}
             status.update(label="Scan complete", state="complete")
         except Exception as exc:
+            channel_store.finish_run(subject_id, run_id, None, [str(exc)], failed=True)
             status.update(label="Scan failed", state="error")
             st.error(str(exc))
 

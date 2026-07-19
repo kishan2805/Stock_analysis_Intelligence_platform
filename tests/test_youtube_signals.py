@@ -78,9 +78,30 @@ def test_ticker_search_rejects_tied_candidates():
 
 def test_saved_channel_library_persists_enablement_and_removal(tmp_path):
     store = ChannelStore(str(tmp_path / "monitoring.sqlite3"))
-    channel = store.add_channel("https://www.youtube.com/@example/videos", "Example")
-    assert store.list_channels() == [channel]
-    store.set_enabled(channel.id, False)
-    assert not store.list_channels()[0].enabled
-    store.delete_channel(channel.id)
-    assert store.list_channels() == []
+    channel = store.add_channel("user-a", "https://www.youtube.com/@example/videos", "Example")
+    store.add_channel("user-b", "https://www.youtube.com/@example/videos", "Other user")
+    assert store.list_channels("user-a") == [channel]
+    assert len(store.list_channels("user-b")) == 1
+    assert {item.owner_subject for item in store.list_enabled_channels()} == {"user-a", "user-b"}
+    store.set_enabled("user-a", channel.id, False)
+    assert not store.list_channels("user-a")[0].enabled
+    store.delete_channel("user-a", channel.id)
+    assert store.list_channels("user-a") == []
+
+
+def test_daily_schedule_is_claimed_once_after_completion(tmp_path):
+    store = ChannelStore(str(tmp_path / "monitoring.sqlite3"))
+    assert store.queue_daily_approval("2026-07-19") == "pending_approval"
+    assert store.approve_daily_schedule("2026-07-19")
+    assert store.claim_approved_daily_schedule("2026-07-19")
+    store.finish_daily_schedule("2026-07-19")
+    assert store.queue_daily_approval("2026-07-19") == "completed"
+
+
+def test_runs_are_owned_by_the_subject_that_started_them(tmp_path):
+    store = ChannelStore(str(tmp_path / "monitoring.sqlite3"))
+    run_id = store.start_run("telegram-101", "manual_links")
+    store.finish_run("telegram-101", run_id, {"reports": []}, [])
+    with store._connect() as db:
+        row = db.execute("SELECT owner_subject, source, status FROM scan_runs WHERE id = ?", (run_id,)).fetchone()
+    assert dict(row) == {"owner_subject": "telegram-101", "source": "manual_links", "status": "completed"}

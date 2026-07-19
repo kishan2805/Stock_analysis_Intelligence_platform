@@ -7,7 +7,7 @@
 
 ollama:
   base_url: "http://localhost:11434"
-  office_model: "gemma3:4b"
+  office_model: "Qwen3:0.6b"
   # Gemma 3 supports 10k+ context, but 2048 is the responsive setting on
   # this local machine. Increase only on hardware that benchmarks well.
   gemma3_context_tokens: 2048
