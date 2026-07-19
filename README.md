@@ -76,7 +76,7 @@ Uncertain ticker matches are retained as **unresolved**; SAIP does not silently 
 ### 2. Create the environment
 
 ```bash
-git clone <your-repository-url>
+git clone <repository-url>
 cd hedge-fund-app
 
 python3 -m venv venv
@@ -217,8 +217,3 @@ config/settings.yaml                Model routing and feature configuration
 user_database/                      Ignored local persistent database
 ```
 
-## Further documentation
-
-- [`local/HFIP_v2.5_ARCHITECTURE.md`](local/HFIP_v2.5_ARCHITECTURE.md) - core SAIP architecture and model routing history
-- [`local/YOUTUBE_STOCK_SCANNER_ARCHITECTURE.md`](local/YOUTUBE_STOCK_SCANNER_ARCHITECTURE.md) - scanner architecture and monitoring design
-- [`local/yt.md`](local/yt.md) - concise current YouTube flow and next-phase notes
