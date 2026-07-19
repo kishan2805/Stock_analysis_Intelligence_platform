@@ -1,5 +1,6 @@
 import json
 import logging
+from copy import deepcopy
 from pathlib import Path
 
 from src.agents.base_agent import BaseAgent
@@ -11,6 +12,34 @@ logger = logging.getLogger(__name__)
 # Maximum chars for the KG summary sent to the auditor
 _MAX_KG_SUMMARY_CHARS = 4_000
 _LOCAL_AUDIT_MAX_TOKENS = 500
+
+# The auditor may use either the pipeline key or the specialist's self-reported
+# name when returning a correction patch.  The score pipeline, however, always
+# uses these canonical pipeline keys.
+_REPORT_KEY_ALIASES = {
+    "fundamental": "fundamental",
+    "fundamental_analyst": "fundamental",
+    "macro": "macro",
+    "macro_strategist": "macro",
+    "moat": "moat",
+    "moat_analyst": "moat",
+    "growth": "growth",
+    "growth_valuation": "growth",
+    "growth_valuation_analyst": "growth",
+    "market_regime": "market_regime",
+    "market_regime_head": "market_regime",
+    "market_regime_agent": "market_regime",
+    "risk_narrative": "risk_narrative",
+    "risk_officer": "risk_narrative",
+}
+
+# The auditor verifies facts; it must never silently replace an investment
+# score, routing metadata, or model attribution from the original report.
+_PROTECTED_REPORT_FIELDS = {
+    "agent", "ticker", "score", "moat_score", "growth_score",
+    "sector_regime_multiplier", "det_risk_score", "_pipeline_key",
+    "_model_used", "_score_display", "error",
+}
 
 
 class EvidenceAuditor(BaseAgent):
@@ -73,9 +102,17 @@ class EvidenceAuditor(BaseAgent):
             result = self._parse_and_validate(raw)
             result["_model_used"] = self.llm.get_model_name()
 
-            # Always populate validated_reports — fall back to originals if missing
-            if "validated_reports" not in result or not result["validated_reports"]:
-                result["validated_reports"] = agent_reports
+            # The prompt requests an auditor *patch*, not replacement reports.
+            # Some models return {"NOTE": "..."} or only one corrected field;
+            # accepting that object as the complete report set would erase every
+            # specialist score before CIO calculation. Always merge valid patches
+            # onto the original, pipeline-keyed reports.
+            auditor_patches = result.get("validated_reports")
+            result["validated_reports"] = self._merge_report_patches(
+                agent_reports, auditor_patches
+            )
+            if isinstance(auditor_patches, dict):
+                result["validated_report_patches"] = auditor_patches
 
             # Ensure numeric fields have defaults
             result.setdefault("reliability_score", 5.0)
@@ -90,6 +127,55 @@ class EvidenceAuditor(BaseAgent):
         except Exception as e:
             logger.error(f"[evidence_auditor] failed: {e}")
             return self._fallback_audit(agent_reports, error=str(e))
+
+    @staticmethod
+    def _deep_merge(original: dict, patch: dict) -> dict:
+        merged = deepcopy(original)
+        for key, value in patch.items():
+            if (
+                isinstance(value, dict)
+                and isinstance(merged.get(key), dict)
+            ):
+                merged[key] = EvidenceAuditor._deep_merge(merged[key], value)
+            else:
+                merged[key] = deepcopy(value)
+        return merged
+
+    @staticmethod
+    def _canonical_report_key(key: str, patch: dict, originals: dict) -> str | None:
+        candidates = [key]
+        if isinstance(patch, dict):
+            candidates.extend([patch.get("_pipeline_key"), patch.get("agent")])
+        for candidate in candidates:
+            if not isinstance(candidate, str):
+                continue
+            canonical = _REPORT_KEY_ALIASES.get(candidate, candidate)
+            if canonical in originals:
+                return canonical
+        return None
+
+    @classmethod
+    def _merge_report_patches(cls, original_reports: dict, auditor_patches) -> dict:
+        """Return complete original reports with safe auditor corrections merged in."""
+        merged_reports = deepcopy(original_reports)
+        if not isinstance(auditor_patches, dict):
+            return merged_reports
+
+        for returned_key, patch in auditor_patches.items():
+            if not isinstance(patch, dict):
+                continue
+            canonical = cls._canonical_report_key(returned_key, patch, merged_reports)
+            if not canonical:
+                continue
+            safe_patch = {
+                key: value for key, value in patch.items()
+                if key not in _PROTECTED_REPORT_FIELDS
+            }
+            if safe_patch:
+                merged_reports[canonical] = cls._deep_merge(
+                    merged_reports[canonical], safe_patch
+                )
+        return merged_reports
 
     @staticmethod
     def _compact_reports(reports: dict) -> dict:

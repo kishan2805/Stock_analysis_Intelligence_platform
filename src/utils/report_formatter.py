@@ -191,7 +191,7 @@ def print_agent_scores_table(agent_reports: dict):
       N/A        → agent failed to return a valid value
     """
     table = Table(
-        title="Agent Scores (Post-Audit)",
+        title="Agent Scores Used by CIO (Post-Audit)",
         box=box.ROUNDED,
         caption=(
             "✕ = sector regime multiplier (applied to final rating)  |  "

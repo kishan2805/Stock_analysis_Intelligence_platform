@@ -24,7 +24,7 @@ def test_direct_api_model_is_tried_before_local_fallback(monkeypatch):
             )
         },
         ollama=SimpleNamespace(base_url="http://localhost:11434", office_model="gemma3:4b"),
-        api_keys=SimpleNamespace(gemini="x", openai="x", anthropic="y"),
+        api_keys=SimpleNamespace(gemini="x", openai="x", anthropic="y", nvidia="z"),
     )
 
     attempted = []
@@ -40,3 +40,39 @@ def test_direct_api_model_is_tried_before_local_fallback(monkeypatch):
 
     assert client.get_model_name() == "claude-sonnet"
     assert attempted[0] == "claude-sonnet"
+
+
+def test_configured_fallbacks_are_tried_in_order(monkeypatch):
+    config = SimpleNamespace(
+        agents={
+            "fundamental": SimpleNamespace(
+                model="nvidia/nvidia-nemotron-nano-9b-v2",
+                fallback="first-fallback",
+                fallback_2="second-fallback",
+                fallback_3="third-fallback",
+                fallback_4="gemini-2.5-flash",
+            )
+        },
+        ollama=SimpleNamespace(base_url="http://localhost:11434", office_model="office-model"),
+        api_keys=SimpleNamespace(gemini="x", openai="x", anthropic="y", nvidia="z"),
+    )
+
+    attempted = []
+
+    def fake_get_llm(model_name, cfg):
+        attempted.append(model_name)
+        client = DummyClient(model_name)
+        client.health_check = lambda: model_name == "second-fallback"
+        return client
+
+    monkeypatch.setattr(llm_factory, "get_llm", fake_get_llm)
+    monkeypatch.setattr(llm_factory, "_get_available_ollama_models", lambda base_url: set())
+
+    client = llm_factory.get_llm_with_fallback("fundamental", config)
+
+    assert client.get_model_name() == "second-fallback"
+    assert attempted == [
+        "nvidia/nvidia-nemotron-nano-9b-v2",
+        "first-fallback",
+        "second-fallback",
+    ]

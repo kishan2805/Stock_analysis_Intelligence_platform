@@ -6,6 +6,7 @@ from src.models.ollama_client import OllamaClient
 from src.models.gemini_client import GeminiClient
 from src.models.openai_client import OpenAIClient
 from src.models.claude_client import ClaudeClient
+from src.models.nvidia_client import NvidiaClient
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ DIRECT_API_MODELS = {
     "gemini-2.5-flash": lambda cfg: GeminiClient(cfg.api_keys.gemini),
     "gpt-4o-mini":      lambda cfg: OpenAIClient(cfg.api_keys.openai),
     "claude-sonnet":    lambda cfg: ClaudeClient(cfg.api_keys.anthropic),
+    "nvidia/nvidia-nemotron-nano-9b-v2": lambda cfg: NvidiaClient(cfg.api_keys.nvidia),
 }
 
 def get_llm(model_name: str, config) -> BaseLLMClient:
@@ -54,11 +56,9 @@ def get_llm(model_name: str, config) -> BaseLLMClient:
 
 def get_llm_with_fallback(agent_name: str, config) -> BaseLLMClient:
     """Smart fallback cascade:
-    1. Primary (from config) — only if it exists locally in Ollama
-    2. Fallback 1 — only if it exists locally in Ollama
-    3. Fallback 2 — only if it exists locally in Ollama
-    4. Office model (local Ollama, safe fallback)
-    5. Gemini API — only if no Ollama models available locally
+    1. Primary through fallback 4, in configured order
+    2. Office model (local Ollama, safe fallback)
+    3. Gemini API — only if no Ollama models are available locally
 
     Returns the first available model with a successful health_check.
     """
@@ -77,30 +77,30 @@ def get_llm_with_fallback(agent_name: str, config) -> BaseLLMClient:
             return True
         return not available_ollama or model_name in available_ollama
 
-    # Tier 1–3: Try configured models, preferring direct API models first,
-    # then local Ollama models if they exist, then the office model.
-    primary = getattr(agent_cfg, "model", None)
-    if _should_try_model(primary, getattr(config.ollama, "office_model", "qwen2.5-14b")):
-        models_to_try.append((primary, "primary"))
-
-    fb1 = getattr(agent_cfg, "fallback", None)
-    if _should_try_model(fb1, getattr(config.ollama, "office_model", "qwen2.5-14b")):
-        models_to_try.append((fb1, "fallback"))
-
-    fb2 = getattr(agent_cfg, "fallback_2", None)
-    if _should_try_model(fb2, getattr(config.ollama, "office_model", "qwen2.5-14b")):
-        models_to_try.append((fb2, "fallback_2"))
-
-    # Tier 4: Always try the office model (primary fallback)
+    # Try every configured position in exact order. Direct API models are
+    # always eligible; non-direct models are tried only when Ollama is
+    # unavailable or the requested model is installed locally.
     office = getattr(config.ollama, "office_model", "qwen2.5-14b")
-    if office and office != "null":
+    configured_tiers = (
+        ("model", "primary"),
+        ("fallback", "fallback"),
+        ("fallback_2", "fallback_2"),
+        ("fallback_3", "fallback_3"),
+        ("fallback_4", "fallback_4"),
+    )
+    for field_name, tier in configured_tiers:
+        model_name = getattr(agent_cfg, field_name, None)
+        if _should_try_model(model_name, office):
+            models_to_try.append((model_name, tier))
+
+    # Always try the local office model after the configured cascade, unless
+    # it already occupies one of those configured positions.
+    configured_names = {model_name for model_name, _ in models_to_try}
+    if office and office != "null" and office not in configured_names:
         models_to_try.append((office, "office_model"))
 
-    # Tier 5: Gemini API — only if no Ollama models are available locally
-    if not available_ollama:
-        fb3 = getattr(agent_cfg, "fallback_3", None)
-        if fb3 and fb3 != "null":
-            models_to_try.append((fb3, "fallback_3"))
+    # Final safety net when no local Ollama model can be reached.
+    if not available_ollama and "gemini-2.5-flash" not in configured_names:
         models_to_try.append(("gemini-2.5-flash", "gemini_api"))
 
     last_error = None

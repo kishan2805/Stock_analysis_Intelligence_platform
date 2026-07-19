@@ -96,6 +96,7 @@ GROQ_API_KEY=your_groq_key
 GEMINI_API_KEY=
 OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
+NVIDIA_API_KEY=
 
 # Local Ollama configuration
 OLLAMA_BASE_URL=http://localhost:11434
@@ -105,7 +106,7 @@ OLLAMA_OFFICE_MODEL=Qwen3:0.6b
 ADMIN_PASSWORD=choose-a-long-unique-password
 ```
 
-Model names and fallback order live in [`config/settings.yaml`](config/settings.yaml). Pull or configure the local models you intend to use before running a full analysis.
+Model names and fallback order live in [`config/settings.yaml`](config/settings.yaml). NVIDIA Nemotron Nano is the default primary model for every agent; each agent's previous primary and fallbacks are retained in order behind it. Pull or configure the local models you intend to use before running a full analysis.
 
 ### 4. Start the web app
 

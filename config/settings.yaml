@@ -1,8 +1,8 @@
 # config/settings.yaml
 # ─────────────────────────────────────────────────────────────────────────
-# SIAP v2.5 — Model Cascade Configuration
-# Cascade: 1. Primary (original default) → 2. Fallback 1 (original fallback)
-#          → 3. Fallback 2 (Ollama local) → 4. Fallback 3 (Gemini API)
+# SAIP v2.5 — Model Cascade Configuration
+# Cascade: NVIDIA primary → previous primary → previous fallback → local
+#          fallback → final API fallback. The office model remains a safety net.
 # ─────────────────────────────────────────────────────────────────────────
 
 ollama:
@@ -16,6 +16,7 @@ api_keys:
   gemini:     "${GEMINI_API_KEY}"
   openai:     "${OPENAI_API_KEY}"
   anthropic:  "${ANTHROPIC_API_KEY}"
+  nvidia:     "${NVIDIA_API_KEY}"
 
 # Public YouTube recommendation scanner (controlled beta)
 youtube_signals:
@@ -48,84 +49,95 @@ agents:
     fallback: null
     fallback_2: null
     fallback_3: null
+    fallback_4: null
 
   fundamental:
-    model:    "deepseek-v4-pro"
-    fallback: "glm-5.2"
-    fallback_2: "qwen2.5-14b"
-    fallback_3: "gemini-2.5-flash"
+    model:      "nvidia/nvidia-nemotron-nano-9b-v2"
+    fallback:   "deepseek-v4-pro"
+    fallback_2: "glm-5.2"
+    fallback_3: "qwen2.5-14b"
+    fallback_4: "gemini-2.5-flash"
     temperature: 0.1
     max_tokens: 10000
 
   macro:
-    model:    "glm-5.2"
-    fallback: "deepseek-v4-pro"
-    fallback_2: "qwen2.5-14b"
-    fallback_3: "gemini-2.5-flash"
+    model:      "nvidia/nvidia-nemotron-nano-9b-v2"
+    fallback:   "glm-5.2"
+    fallback_2: "deepseek-v4-pro"
+    fallback_3: "qwen2.5-14b"
+    fallback_4: "gemini-2.5-flash"
     temperature: 0.2
     max_tokens: 2000
 
   moat:
-    model:    "gemini-flash"
-    fallback: "minimax-m2.1"
-    fallback_2: "qwen2.5-14b"
-    fallback_3: "gemini-2.5-flash"
+    model:      "nvidia/nvidia-nemotron-nano-9b-v2"
+    fallback:   "gemini-flash"
+    fallback_2: "minimax-m2.1"
+    fallback_3: "qwen2.5-14b"
+    fallback_4: "gemini-2.5-flash"
     temperature: 0.2
     max_tokens: 10000
 
   risk_narrative:
-    model:    "glm-5.2"
-    fallback: "deepseek-v4-pro"
-    fallback_2: "qwen2.5-14b"
-    fallback_3: "gemini-2.5-flash"
+    model:      "nvidia/nvidia-nemotron-nano-9b-v2"
+    fallback:   "glm-5.2"
+    fallback_2: "deepseek-v4-pro"
+    fallback_3: "qwen2.5-14b"
+    fallback_4: "gemini-2.5-flash"
     temperature: 0.1
     max_tokens: 10000
 
   growth_valuation:
-    model:    "gemini-flash"
-    fallback: "minimax-m2.1"
-    fallback_2: "qwen2.5-14b"
-    fallback_3: "gemini-2.5-flash"
+    model:      "nvidia/nvidia-nemotron-nano-9b-v2"
+    fallback:   "gemini-flash"
+    fallback_2: "minimax-m2.1"
+    fallback_3: "qwen2.5-14b"
+    fallback_4: "gemini-2.5-flash"
     temperature: 0.2
     max_tokens: 10000
 
   market_regime:
-    model:    "minimax-m2.1"
-    fallback: "glm-5.2"
-    fallback_2: "qwen2.5-14b"
-    fallback_3: "gemini-2.5-flash"
+    model:      "nvidia/nvidia-nemotron-nano-9b-v2"
+    fallback:   "minimax-m2.1"
+    fallback_2: "glm-5.2"
+    fallback_3: "qwen2.5-14b"
+    fallback_4: "gemini-2.5-flash"
     temperature: 0.2
     max_tokens: 10000
 
   evidence_auditor:
-    model:    "gpt-oss-120b"
-    fallback: "glm-5.2"
-    fallback_2: "qwen2.5-14b"
-    fallback_3: "gemini-2.5-flash"
+    model:      "nvidia/nvidia-nemotron-nano-9b-v2"
+    fallback:   "gpt-oss-120b"
+    fallback_2: "glm-5.2"
+    fallback_3: "qwen2.5-14b"
+    fallback_4: "gemini-2.5-flash"
     temperature: 0.1
     max_tokens: 10000
 
   bull_debate:
-    model:    "kimi-k2.5"
-    fallback: "gpt-oss-120b"
-    fallback_2: "qwen2.5-14b"
-    fallback_3: "gemini-2.5-flash"
+    model:      "nvidia/nvidia-nemotron-nano-9b-v2"
+    fallback:   "kimi-k2.5"
+    fallback_2: "gpt-oss-120b"
+    fallback_3: "qwen2.5-14b"
+    fallback_4: "gemini-2.5-flash"
     temperature: 0.5
     max_tokens: 10000
 
   bear_debate:
-    model:    "kimi-k2.5"
-    fallback: "gpt-oss-120b"
-    fallback_2: "qwen2.5-14b"
-    fallback_3: "gemini-2.5-flash"
+    model:      "nvidia/nvidia-nemotron-nano-9b-v2"
+    fallback:   "kimi-k2.5"
+    fallback_2: "gpt-oss-120b"
+    fallback_3: "qwen2.5-14b"
+    fallback_4: "gemini-2.5-flash"
     temperature: 0.5
     max_tokens: 10000
 
   cio:
-    model:    "deepseek-v4-pro"
-    fallback: "glm-5.2"
-    fallback_2: "qwen2.5-14b"
-    fallback_3: "gemini-2.5-flash"
+    model:      "deepseek-ai/deepseek-v4-pro"
+    fallback:   "nvidia/nvidia-nemotron-nano-9b-v2"
+    fallback_2: "glm-5.2"
+    fallback_3: "qwen2.5-14b"
+    fallback_4: "gemini-2.5-flash"
     temperature: 0.1
     max_tokens: 10000
 
