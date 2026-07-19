@@ -32,13 +32,16 @@ DIRECT_API_MODELS = {
     "gpt-4o-mini":      lambda cfg: OpenAIClient(cfg.api_keys.openai),
     "claude-sonnet":    lambda cfg: ClaudeClient(cfg.api_keys.anthropic),
     "nvidia/nvidia-nemotron-nano-9b-v2": lambda cfg: NvidiaClient(cfg.api_keys.nvidia),
+    "deepseek-ai/deepseek-v4-pro": lambda cfg: NvidiaClient(
+        cfg.api_keys.nvidia, model="deepseek-ai/deepseek-v4-pro"
+    ),
 }
 
 def get_llm(model_name: str, config) -> BaseLLMClient:
     """Resolve a model name to an LLM client.
 
     Priority:
-    1. Direct API models (Gemini, OpenAI, Claude)
+    1. Direct API models (Gemini, OpenAI, Claude, NVIDIA-hosted models)
     2. Ollama-served models (local or cloud)
     """
     if not model_name or model_name == "null":

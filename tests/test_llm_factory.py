@@ -76,3 +76,27 @@ def test_configured_fallbacks_are_tried_in_order(monkeypatch):
         "first-fallback",
         "second-fallback",
     ]
+
+
+def test_nvidia_hosted_deepseek_uses_nvidia_client(monkeypatch):
+    config = SimpleNamespace(
+        ollama=SimpleNamespace(base_url="http://localhost:11434"),
+        api_keys=SimpleNamespace(gemini="x", openai="x", anthropic="y", nvidia="nvidia-key"),
+    )
+    captured = {}
+
+    class FakeNvidiaClient(DummyClient):
+        def __init__(self, api_key, model):
+            captured["api_key"] = api_key
+            captured["model"] = model
+            super().__init__(model)
+
+    monkeypatch.setattr(llm_factory, "NvidiaClient", FakeNvidiaClient)
+
+    client = llm_factory.get_llm("deepseek-ai/deepseek-v4-pro", config)
+
+    assert captured == {
+        "api_key": "nvidia-key",
+        "model": "deepseek-ai/deepseek-v4-pro",
+    }
+    assert client.get_model_name() == "deepseek-ai/deepseek-v4-pro"

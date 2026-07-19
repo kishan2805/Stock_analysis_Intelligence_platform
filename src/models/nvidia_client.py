@@ -9,6 +9,10 @@ class NvidiaClient(BaseLLMClient):
     """NVIDIA NIM client using NVIDIA's OpenAI-compatible chat API."""
 
     BASE_URL = "https://integrate.api.nvidia.com/v1"
+    _DEEPSEEK_V4_MODELS = {
+        "deepseek-ai/deepseek-v4-pro",
+        "deepseek-ai/deepseek-v4-flash",
+    }
 
     def __init__(
         self,
@@ -25,6 +29,17 @@ class NvidiaClient(BaseLLMClient):
             logger.warning("openai not installed, NvidiaClient unavailable")
             self.client = None
 
+    def _is_deepseek_v4(self) -> bool:
+        return self.model in self._DEEPSEEK_V4_MODELS
+
+    def _system_message(self, system_prompt: str) -> str:
+        # Nemotron uses an in-prompt control token. DeepSeek V4 exposes the
+        # equivalent control as an API field, so do not send it a Nemotron-only
+        # instruction.
+        if self._is_deepseek_v4():
+            return system_prompt
+        return "/no_think\n" + system_prompt
+
     def complete(
         self,
         system_prompt: str,
@@ -36,14 +51,16 @@ class NvidiaClient(BaseLLMClient):
         if self.client is None:
             raise RuntimeError("NVIDIA client not initialized")
 
-        # SAIP agents require machine-readable structured output.  Nemotron's
-        # reasoning mode is enabled by default, so disable it for this workflow.
-        system_message = "/no_think\n" + system_prompt
+        # SAIP agents require machine-readable structured output. Disable
+        # optional reasoning traces so the response remains valid JSON.
+        request_options = {}
+        if self._is_deepseek_v4():
+            request_options["reasoning_effort"] = "none"
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": system_message},
+                    {"role": "system", "content": self._system_message(system_prompt)},
                     {"role": "user", "content": user_message},
                 ],
                 temperature=temperature,
@@ -51,6 +68,7 @@ class NvidiaClient(BaseLLMClient):
                 response_format={"type": "json_object"}
                 if response_format == "json"
                 else None,
+                **request_options,
             )
             content = response.choices[0].message.content
             if not content:
@@ -66,15 +84,20 @@ class NvidiaClient(BaseLLMClient):
     def health_check(self) -> bool:
         if self.client is None or not self.api_key:
             return False
+        request_options = {}
+        if self._is_deepseek_v4():
+            request_options["reasoning_effort"] = "none"
         try:
             self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "/no_think"},
+                    {"role": "system", "content": self._system_message("")},
                     {"role": "user", "content": "Reply with OK."},
                 ],
                 temperature=0,
                 max_tokens=8,
+                timeout=20,
+                **request_options,
             )
             return True
         except Exception as exc:
