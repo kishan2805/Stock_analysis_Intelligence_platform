@@ -58,6 +58,7 @@ class RankedStockReport(BaseModel):
     ticker: str
     company_name: str
     conviction_score: float
+    ranking_score: float
     rank: int
     suggested_buy_price: float | None = None
     target_price: float | None = None

@@ -3,7 +3,7 @@ import asyncio
 from .aggregator import aggregate
 from .cache import SignalCache
 from .channel_scanner import scan_url
-from .conviction_ranker import diversify, score
+from .conviction_ranker import conviction_score, diversify, ranking_score
 from .extractor_agent import ExtractorAgent
 from .groq_client import GroqClient
 from .schemas import RankedStockReport
@@ -73,10 +73,19 @@ class YouTubeScannerService:
                     return stock.ticker, None
         deep_results = dict(await asyncio.gather(*(deep_dive(s) for s in candidates)))
         verdicts = {ticker: result.get("cio") if result else None for ticker, result in deep_results.items()}
-        rows = [(stock, verdicts.get(stock.ticker), score(stock, max(1, len({v.channel_url for v in videos})), verdicts.get(stock.ticker))) for stock in candidates]
-        selected = diversify(rows, top_n, self.config.youtube_signals.ranking.max_per_sector)
-        reports = []
-        for rank, (stock, cio, conviction) in enumerate(selected, 1):
+        channels_scanned = max(1, len({v.channel_url for v in videos}))
+        rows = []
+        for stock in candidates:
+            cio = verdicts.get(stock.ticker)
+            conviction = conviction_score(stock, channels_scanned)
+            rows.append((stock, cio, conviction, ranking_score(conviction, cio)))
+        # Keep a report for every stock that received a deep-dive.  ``top_n``
+        # controls only the shortlist shown first in the UI; it must not
+        # silently remove stocks from the downloadable result set.
+        ranked_rows = sorted(rows, key=lambda row: row[3], reverse=True)
+        selected = diversify(ranked_rows, top_n, self.config.youtube_signals.ranking.max_per_sector)
+        reports_by_ticker = {}
+        for rank, (stock, cio, conviction, final_score) in enumerate(ranked_rows, 1):
             entry = [c.entry_price for c in stock.calls if c.entry_price is not None]
             target = [c.target_price for c in stock.calls if c.target_price is not None]
             stop = [c.stop_loss for c in stock.calls if c.stop_loss is not None]
@@ -93,5 +102,8 @@ class YouTubeScannerService:
                 quality_notes.append("debate_failed")
             if not cio:
                 quality_notes.append("HFIP deep-dive failed; neutral ranking score used")
-            reports.append(RankedStockReport(ticker=stock.ticker, company_name=stock.company_name, conviction_score=conviction, rank=rank, suggested_buy_price=min(entry) if entry else None, target_price=sum(target)/len(target) if target else None, stop_loss=max(stop) if stop else None, buy_side_view="Channel-stated rationale: " + "; ".join(filter(None, [c.rationale_snippet for c in stock.calls[:3]])), sell_side_view=(cio or {}).get("thesis_invalidating_risk") or "No independent downside narrative was available; verify the underlying video evidence.", source_channels=stock.channels, mention_count=stock.mention_count, hfip_rating=(cio or {}).get("final_rating"), hfip_model=model, hfip_execution_mode=self.config.youtube_signals.deep_dive.execution_mode, data_quality="Complete" if not quality_notes else "Degraded", data_quality_notes=quality_notes, sector=stock.sector, channel_price_note="Prices shown are only levels explicitly stated by channels; HFIP buy-below is a separate valuation guardrail."))
-        return {"reports": reports, "stocks": stocks, "unresolved": unresolved, "errors": errors, "videos": videos}
+            reports_by_ticker[stock.ticker] = RankedStockReport(ticker=stock.ticker, company_name=stock.company_name, conviction_score=conviction, ranking_score=final_score, rank=rank, suggested_buy_price=min(entry) if entry else None, target_price=sum(target)/len(target) if target else None, stop_loss=max(stop) if stop else None, buy_side_view="Channel-stated rationale: " + "; ".join(filter(None, [c.rationale_snippet for c in stock.calls[:3]])), sell_side_view=(cio or {}).get("thesis_invalidating_risk") or "No independent downside narrative was available; verify the underlying video evidence.", source_channels=stock.channels, mention_count=stock.mention_count, hfip_rating=(cio or {}).get("final_rating"), hfip_model=model, hfip_execution_mode=self.config.youtube_signals.deep_dive.execution_mode, data_quality="Complete" if not quality_notes else "Degraded", data_quality_notes=quality_notes, sector=stock.sector, channel_price_note="Prices shown are only levels explicitly stated by channels; HFIP buy-below is a separate valuation guardrail.")
+        all_reports = list(reports_by_ticker.values())
+        shortlist_tickers = {stock.ticker for stock, *_ in selected}
+        reports = [report for report in all_reports if report.ticker in shortlist_tickers]
+        return {"reports": reports, "all_reports": all_reports, "stocks": stocks, "unresolved": unresolved, "errors": errors, "videos": videos}
