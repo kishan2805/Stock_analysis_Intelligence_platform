@@ -1,5 +1,6 @@
 .env
 .cache/
+user_database/
 __pycache__/
 *.pyc
 *.egg-info/
@@ -12,3 +13,5 @@ local
 # ignore generated JSON reports
 report*.json
 reports
+Archive.zip
+output/youtube-runs/

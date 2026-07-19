@@ -26,6 +26,18 @@ def _clean_value(v):
     return v
 
 
+def _normalise_debt_equity(value):
+    """Yahoo reports debtToEquity as a percentage; internal risk logic uses x."""
+    value = _clean_value(value)
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+        return round(numeric / 100, 4) if numeric > 10 else numeric
+    except (TypeError, ValueError):
+        return None
+
+
 def _clean_dict(d: dict) -> dict:
     """Recursively sanitise a dict: NaN→None, Timestamp keys→str."""
     if not isinstance(d, dict):
@@ -139,7 +151,8 @@ class StockFetcher:
         return {
             "roe":                _clean_value(info.get("returnOnEquity")),
             "roa":                _clean_value(info.get("returnOnAssets")),
-            "debt_equity":        _clean_value(info.get("debtToEquity")),
+            "debt_equity":        _normalise_debt_equity(info.get("debtToEquity")),
+            "debt_equity_pct":    _clean_value(info.get("debtToEquity")),
             "current_ratio":      _clean_value(info.get("currentRatio")),
             "interest_coverage":  _clean_value(interest_coverage),
             "fcf_margin":         _clean_value(round(fcf / total_revenue, 4) if total_revenue else 0),
@@ -245,7 +258,7 @@ class StockFetcher:
                     "pb_ratio":   _clean_value(pi.get("priceToBook")),
                     "market_cap": _clean_value(pi.get("marketCap")),
                     "roe":        _clean_value(pi.get("returnOnEquity")),
-                    "debt_equity":_clean_value(pi.get("debtToEquity")),
+                    "debt_equity":_normalise_debt_equity(pi.get("debtToEquity")),
                 })
             except Exception as e:
                 logger.warning(f"Peer fetch failed for {pt}: {e}")

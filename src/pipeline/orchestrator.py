@@ -10,6 +10,15 @@ from src.models.llm_factory import get_llm_with_fallback
 
 logger = logging.getLogger(__name__)
 
+
+def _missing_core_agents(agent_reports: dict) -> list[str]:
+    missing = []
+    for name in ("fundamental", "macro", "growth"):
+        report = agent_reports.get(name, {})
+        if not isinstance(report, dict) or report.get("error") or report.get("score") is None:
+            missing.append(name)
+    return missing
+
 class PipelineOrchestrator:
     def __init__(self, config):
         self.config = config

@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 # Maps model-name prefixes → max chars for the user_message (data portion only).
 # System prompt is ~1000 chars extra. Budget is conservative to guarantee output fits.
 _MODEL_CONTEXT_BUDGETS: dict[str, int] = {
-    "gemma3:4b":    2_500,   # 2048 token window → ~2500 chars safe budget
+    "gemma3:4b":    2_500,   # 2048-token local profile; compact snapshot retains key financials
     "gemma3:8b":    5_000,   # typically 4096 tokens
     "gemma":        5_000,   # any other gemma variant
     "phi3":         6_000,   # 4096 tokens
@@ -69,6 +69,12 @@ _TRIM_LIST_FIELDS = {
 # Heavy financial fields — reduce year depth for small context models
 _FINANCIAL_FIELDS = ("balance_sheet", "income_statement", "cash_flow")
 
+_FINANCIAL_SNAPSHOT_METRICS = {
+    "balance_sheet": ("total debt", "cash", "total assets", "stockholders equity"),
+    "income_statement": ("total revenue", "operating income", "net income", "ebitda"),
+    "cash_flow": ("operating cash flow", "capital expenditure", "free cash flow"),
+}
+
 # Sentinel strings the model might use instead of null
 _NULL_SENTINELS = {
     "none", "null", "n/a", "na", "nil", "not available",
@@ -83,6 +89,30 @@ def _get_context_budget(model_name: str) -> int:
         if model_lower.startswith(prefix):
             return budget
     return _MODEL_CONTEXT_BUDGETS["default"]
+
+
+def _compact_financial_snapshot(data: dict) -> dict:
+    """Keep two periods of decision-useful financial lines for small models."""
+    snapshot = {}
+    for field, wanted_metrics in _FINANCIAL_SNAPSHOT_METRICS.items():
+        statement = data.get(field)
+        if not isinstance(statement, dict):
+            continue
+        periods = {}
+        for period in sorted(statement.keys(), reverse=True)[:2]:
+            rows = statement.get(period)
+            if not isinstance(rows, dict):
+                continue
+            selected = {}
+            for label, value in rows.items():
+                normalised = str(label).lower()
+                if value is not None and any(metric in normalised for metric in wanted_metrics):
+                    selected[str(label)] = value
+            if selected:
+                periods[str(period)] = selected
+        if periods:
+            snapshot[field] = periods
+    return snapshot
 
 
 def _trim_kg_data(data: dict, context_budget: int) -> dict:
@@ -106,13 +136,16 @@ def _trim_kg_data(data: dict, context_budget: int) -> dict:
                 years = sorted(out[field].keys(), reverse=True)
                 out[field] = {y: out[field][y] for y in years[:2]}  # keep 2 years max
 
-    # Pass 3: if still too large, drop raw financials entirely — keep ratios
+    # Pass 3: replace raw statements with a compact two-period snapshot.
     if len(json.dumps(out, default=str)) > context_budget:
+        snapshot = _compact_financial_snapshot(out)
         for field in _FINANCIAL_FIELDS:
             out.pop(field, None)
-        logger.warning(
-            f"Context budget {context_budget} chars: dropped raw financial statements. "
-            f"key_ratios still present. Consider using a model with larger context window."
+        if snapshot:
+            out["financial_snapshot"] = snapshot
+        logger.info(
+            f"Context budget {context_budget} chars: replaced raw financial statements "
+            f"with a compact two-period financial snapshot."
         )
 
     # Pass 4: nuclear — if still huge, trim everything that's a dict/list
@@ -120,13 +153,12 @@ def _trim_kg_data(data: dict, context_budget: int) -> dict:
         for k in list(out.keys()):
             if isinstance(out[k], (dict, list)) and k not in (
                 "key_ratios", "valuation_metrics", "ticker",
-                "company_name", "sector", "exchange",
+                "company_name", "sector", "exchange", "financial_snapshot",
             ):
                 out.pop(k, None)
-        logger.warning(
-            f"Context budget exceeded even after removing financials. "
-            f"Only key_ratios and valuation_metrics retained. "
-            f"Switch to a model with ≥8k context window for full analysis."
+        logger.info(
+            f"Local context reduction ({context_budget} chars): retained core ratios "
+            "and valuation metrics after dropping optional evidence fields."
         )
 
     return out
@@ -184,10 +216,11 @@ class BaseAgent:
         try:
             agent_cfg = self.config.agents.get(self.AGENT_NAME, {})
             user_msg = self._build_user_message(kg, kwargs.get("extra"))
+            is_local_gemma = self.llm.get_model_name().lower().startswith("gemma3:4b")
             raw = self.llm.complete(
                 system_prompt=self.system_prompt,
                 user_message=user_msg,
-                temperature=getattr(agent_cfg, "temperature", 0.2),
+                temperature=0.0 if is_local_gemma else getattr(agent_cfg, "temperature", 0.2),
                 max_tokens=getattr(agent_cfg, "max_tokens", 2000),
                 response_format="json",
             )
@@ -222,8 +255,7 @@ class BaseAgent:
         """
         def _replace(match: re.Match) -> str:
             inner = match.group(1)
-            inner = re.sub(r"[\r\n]+", " ", inner)
-            inner = re.sub(r"[ \t]{2,}", " ", inner)
+            inner = re.sub(r"\s+", " ", inner).strip()
             return f'"{inner}"'
 
         return re.sub(r'"((?:\\.|[^"\\])*)"', _replace, text, flags=re.DOTALL)
@@ -347,8 +379,8 @@ class BaseAgent:
         text = self._strip_fences(text)
 
         # Build candidates in order from least to most aggressive
-        candidates = [text]
-        candidates.append(self._normalize_string_whitespace(text))
+        normalized = self._normalize_string_whitespace(text)
+        candidates = [normalized, text]
         candidates.append(self._repair_json(text))
         candidates.append(self._normalize_string_whitespace(self._repair_json(text)))
 

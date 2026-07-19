@@ -69,6 +69,14 @@ def _safe(val, default=5.0):
         return default
 
 
+def _safe_regime_multiplier(val) -> float:
+    """Regime is deliberately signed (-1.5 to +1.5), unlike 0–10 scores."""
+    try:
+        return max(-1.5, min(1.5, float(val)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _verdict(score: float) -> tuple[str, str]:
     for threshold, v, c in _VERDICT_BANDS:
         if score >= threshold:
@@ -104,8 +112,8 @@ def _find_report(reports: dict, pipeline_key: str) -> dict:
     return {}
 
 
-def _extract_score(reports: dict, pipeline_key: str, default: float = 5.0) -> float:
-    """Extract a 0-10 score for an agent, trying all known key variants."""
+def _extract_score(reports: dict, pipeline_key: str, default: float | None = None) -> float | None:
+    """Extract a score; missing data stays missing instead of becoming 5.0."""
     report = _find_report(reports, pipeline_key)
     if not report:
         return default
@@ -154,7 +162,10 @@ class CIOAgent:
             config_weights, ticker, company_name, duration_months,
         )
         try:
-            narrative = await self._get_narrative(skeleton, audited_bundle, debate_result)
+            if self.llm.get_model_name().lower().startswith("gemma3:4b"):
+                narrative = self._local_narrative(skeleton, audited_bundle, debate_result, det_risk)
+            else:
+                narrative = await self._get_narrative(skeleton, audited_bundle, debate_result)
             skeleton.update(narrative)
         except Exception as e:
             logger.error(f"[cio] narrative LLM call failed: {e}")
@@ -164,6 +175,63 @@ class CIOAgent:
 
         skeleton["_model_used"] = self.llm.get_model_name()
         return skeleton
+
+    def _local_narrative(self, skeleton: dict, audited_bundle: dict,
+                         debate_result: dict, det_risk: dict) -> dict:
+        """Build a grounded CIO narrative without a second hallucination-prone call.
+
+        Gemma already handles the specialist calls and debate. Asking the same
+        small model to rewrite every report into a long CIO memo caused it to
+        invent figures that were not in the KnowledgeGraph. This path uses only
+        fields that are already present in the audited bundle.
+        """
+        reports = audited_bundle.get("validated_reports", {})
+        fundamental = _find_report(reports, "fundamental")
+        macro = _find_report(reports, "macro")
+        growth = _find_report(reports, "growth")
+        moat = _find_report(reports, "moat")
+        risk = _find_report(reports, "risk_narrative")
+        regime = _find_report(reports, "market_regime")
+
+        summary = []
+        metrics = fundamental.get("key_metrics_cited") or {}
+        cited = [f"{key}={value}" for key, value in metrics.items() if value is not None]
+        if cited:
+            summary.append("Fundamental evidence: " + ", ".join(cited[:3]) + ".")
+        if macro.get("sentiment_summary"):
+            summary.append("Macro evidence: " + str(macro["sentiment_summary"]))
+        if moat.get("moat_score") is not None:
+            summary.append(f"Moat score: {moat['moat_score']}/10 ({moat.get('moat_category', 'unclassified')}).")
+        valuation = growth.get("valuation_verdict")
+        pe = (growth.get("relative_valuation") or {}).get("pe_current")
+        if valuation or pe is not None:
+            detail = f"valuation={valuation or 'N/A'}"
+            if pe is not None:
+                detail += f", P/E={pe}"
+            summary.append("Growth/valuation evidence: " + detail + ".")
+        risk_score = det_risk.get("det_risk_score")
+        if risk_score is not None:
+            summary.append(f"Deterministic risk score: {risk_score}/10 (lower is safer).")
+
+        if not summary:
+            summary = ["No grounded summary was available; review the agent reports and audit warnings."]
+
+        ranked_risks = risk.get("ranked_risks") or []
+        thesis_risk = ranked_risks[0].get("risk") if ranked_risks and isinstance(ranked_risks[0], dict) else None
+        regime_flags = []
+        if regime.get("primary_regime"):
+            regime_flags.append(str(regime["primary_regime"]))
+        regime_flags.extend(str(item) for item in (regime.get("unpriced_risks") or [])[:2])
+
+        return {
+            "expected_cagr": None,
+            "five_point_summary": summary[:5],
+            "buy_below_price": None,
+            "next_catalyst_to_watch": None,
+            "thesis_invalidating_risk": thesis_risk,
+            "debate_decisive_argument": "See the Bull vs Bear transcript; no unsupported decisive claim was generated.",
+            "geopolitical_regime_flags": regime_flags,
+        }
 
     def _compute_scores(
         self,
@@ -178,18 +246,23 @@ class CIOAgent:
         validated = audited_bundle.get("validated_reports", {})
 
         # Extract scores using alias-aware lookup
-        fund   = _extract_score(validated, "fundamental")
-        macro  = _extract_score(validated, "macro")
-        moat   = _extract_score(validated, "moat")
-        growth = _extract_score(validated, "growth")
+        raw_scores = {
+            "fundamental": _extract_score(validated, "fundamental"),
+            "macro": _extract_score(validated, "macro"),
+            "moat": _extract_score(validated, "moat"),
+            "growth": _extract_score(validated, "growth"),
+        }
+        missing_agents = [name for name, value in raw_scores.items() if value is None]
+        available_scores = {name: value for name, value in raw_scores.items() if value is not None}
+        fund = float(available_scores.get("fundamental", 0.0))
+        macro = float(available_scores.get("macro", 0.0))
+        moat = float(available_scores.get("moat", 0.0))
+        growth = float(available_scores.get("growth", 0.0))
         risk_s = _safe(det_risk.get("det_risk_score"))
 
         # Regime multiplier from market_regime report
         regime_report = _find_report(validated, "market_regime")
-        regime = _safe(
-            regime_report.get("sector_regime_multiplier", 0),
-            default=0.0,
-        )
+        regime = _safe_regime_multiplier(regime_report.get("sector_regime_multiplier", 0))
 
         confidence_adj = float(audited_bundle.get("confidence_adjustment") or 0)
         reliability    = float(audited_bundle.get("reliability_score") or 5.0)
@@ -210,19 +283,32 @@ class CIOAgent:
             except Exception:
                 return fallback
 
-        w_fund   = _w("fundamental", 0.25)
-        w_macro  = _w("macro",       0.20)
-        w_moat   = _w("moat",        0.15)
-        w_growth = _w("growth",      0.20)
+        configured_weights = {
+            "fundamental": _w("fundamental", 0.25),
+            "macro": _w("macro", 0.20),
+            "moat": _w("moat", 0.15),
+            "growth": _w("growth", 0.20),
+        }
+        # Architecture §13: never substitute a neutral 5 for a failed agent.
+        # Redistribute its weight proportionally across available specialist scores.
+        available_weight = sum(configured_weights[name] for name in available_scores)
+        missing_weight = sum(configured_weights[name] for name in missing_agents)
+        used_weights = {name: 0.0 for name in configured_weights}
+        if available_weight > 0:
+            for name in available_scores:
+                used_weights[name] = configured_weights[name] + missing_weight * (
+                    configured_weights[name] / available_weight
+                )
+        w_fund = used_weights["fundamental"]
+        w_macro = used_weights["macro"]
+        w_moat = used_weights["moat"]
+        w_growth = used_weights["growth"]
         w_risk   = _w("risk",        0.20)
 
         # Step 1 — weighted raw
         risk_contribution = (10 - risk_s) * w_risk
         weighted_raw = round(
-            fund   * w_fund  +
-            macro  * w_macro +
-            moat   * w_moat  +
-            growth * w_growth +
+            sum(float(value) * used_weights[name] for name, value in available_scores.items()) +
             risk_contribution,
             3,
         )
@@ -238,12 +324,12 @@ class CIOAgent:
         after_debate = round(after_confidence + debate_adj, 3)
 
         # Step 4 — regime multiplier
-        regime_clamped = max(-1.5, min(1.5, regime))
+        regime_clamped = regime
         final = round(max(0.0, min(10.0, after_debate + regime_clamped)), 2)
 
         verdict, conviction = _verdict(final)
 
-        agent_scores_list = [fund, macro, moat, growth, 10 - risk_s]
+        agent_scores_list = list(available_scores.values()) + [10 - risk_s]
         spread = max(agent_scores_list) - min(agent_scores_list)
         uncertainty = "HIGH" if spread > 3.0 else ("MEDIUM" if spread > 1.5 else "LOW")
         if debate_result.get("high_uncertainty"):
@@ -279,19 +365,20 @@ class CIOAgent:
 
             "score_calculation": {
                 "agent_scores":       {
-                    "fundamental": fund,
-                    "macro":       macro,
-                    "moat":        moat,
-                    "growth":      growth,
+                    "fundamental": raw_scores["fundamental"],
+                    "macro":       raw_scores["macro"],
+                    "moat":        raw_scores["moat"],
+                    "growth":      raw_scores["growth"],
                     "det_risk":    risk_s,
                 },
                 "weights":            {
-                    "fundamental": w_fund,
-                    "macro":       w_macro,
-                    "moat":        w_moat,
-                    "growth":      w_growth,
+                    "fundamental": used_weights["fundamental"],
+                    "macro":       used_weights["macro"],
+                    "moat":        used_weights["moat"],
+                    "growth":      used_weights["growth"],
                     "risk":        w_risk,
                 },
+                "missing_agents": missing_agents,
                 "weighted_raw":       weighted_raw,
                 "confidence_penalty": round(confidence_adj, 3),
                 "debate_adjustment":  debate_adj,

@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 # Maximum chars for the KG summary sent to the auditor
 _MAX_KG_SUMMARY_CHARS = 4_000
+_LOCAL_AUDIT_MAX_TOKENS = 500
 
 
 class EvidenceAuditor(BaseAgent):
@@ -25,6 +26,16 @@ class EvidenceAuditor(BaseAgent):
             reports_to_audit = {
                 k: v for k, v in agent_reports.items() if k != "det_risk"
             }
+            is_local_gemma = self.llm.get_model_name().lower().startswith("gemma3:4b")
+            if is_local_gemma:
+                reports_to_audit = self._compact_reports(reports_to_audit)
+                kg_summary = {
+                    "key_ratios": kg.key_ratios,
+                    "valuation_metrics": kg.valuation_metrics,
+                    "data_gaps": kg.data_gaps,
+                    "news_headline_count": len(kg.news_headlines),
+                    "peer_count": len(kg.peers),
+                }
 
             user_msg = (
                 "Audit the following agent reports against the IntelligenceBundle.\n"
@@ -39,11 +50,22 @@ class EvidenceAuditor(BaseAgent):
                 )
             )
 
+            system_prompt = self.system_prompt
+            if is_local_gemma:
+                system_prompt = (
+                    "You are a concise evidence checker. Compare the supplied compact reports "
+                    "only with the supplied data. Return ONLY valid JSON and do not rewrite reports. "
+                    "Use this shape: {\"agent\":\"evidence_auditor\","
+                    "\"reliability_score\":0-10,\"confidence_adjustment\":0 or negative,"
+                    "\"evidence_completeness\":{\"overall\":0-1},"
+                    "\"contradictions\":[],\"citation_errors\":[],\"warnings\":[]}."
+                )
             raw = self.llm.complete(
-                system_prompt=self.system_prompt,
+                system_prompt=system_prompt,
                 user_message=user_msg,
                 temperature=getattr(agent_cfg, "temperature", 0.1),
-                max_tokens=getattr(agent_cfg, "max_tokens", 2000),
+                max_tokens=min(getattr(agent_cfg, "max_tokens", 2000), _LOCAL_AUDIT_MAX_TOKENS)
+                if is_local_gemma else getattr(agent_cfg, "max_tokens", 2000),
                 response_format="json",
             )
 
@@ -68,6 +90,26 @@ class EvidenceAuditor(BaseAgent):
         except Exception as e:
             logger.error(f"[evidence_auditor] failed: {e}")
             return self._fallback_audit(agent_reports, error=str(e))
+
+    @staticmethod
+    def _compact_reports(reports: dict) -> dict:
+        """Keep audit-relevant facts without asking a local model to reprint reports."""
+        compact = {}
+        allowed = (
+            "agent", "ticker", "score", "moat_score", "confidence", "error",
+            "key_metrics_cited", "key_macro_signals", "bull_points", "bear_points",
+            "ranked_risks", "sector_regime_multiplier", "valuation_verdict",
+        )
+        for name, report in reports.items():
+            if not isinstance(report, dict):
+                compact[name] = report
+                continue
+            item = {key: report[key] for key in allowed if key in report}
+            for list_key in ("bull_points", "bear_points", "ranked_risks"):
+                if isinstance(item.get(list_key), list):
+                    item[list_key] = item[list_key][:2]
+            compact[name] = item
+        return compact
 
     def _build_kg_summary(self, kg: KnowledgeGraph) -> dict:
         """

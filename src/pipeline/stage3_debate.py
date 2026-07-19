@@ -99,18 +99,53 @@ class DebateOrchestrator:
             return self._finalize(transcript, error=str(e))
 
     def _call(self, llm, round_id, reports, context, prior_round=None) -> str:
+        is_local_gemma = llm.get_model_name().lower().startswith("gemma3:4b")
+        if is_local_gemma:
+            # Debate used to send complete specialist reports (including long
+            # evidence lists) to a 2k-context model. Ollama then spent the
+            # entire request on prompt processing or timed out. Preserve only
+            # the score-bearing facts needed for the argument.
+            reports = self._compact_reports(reports)
         user_msg = f"Context: {json.dumps(context)}\n\nReports: {json.dumps(reports, default=str)}"
         if prior_round:
-            user_msg += f"\n\nPrevious round:\n{prior_round}"
+            prior = str(prior_round)
+            user_msg += f"\n\nPrevious round:\n{prior[-2500:] if is_local_gemma else prior}"
 
         instruction = self._load_round_instruction(round_id)
+        if is_local_gemma:
+            instruction = (
+                "FIRST LINE MUST be exactly `CONVICTION: X/10` with X from 0 to 10. "
+                "Keep the response under 120 words and use only supplied evidence.\n"
+                + instruction
+            )
         return llm.complete(
             system_prompt=instruction,
             user_message=user_msg,
             response_format="text",
             temperature=0.5,
-            max_tokens=2500
+            max_tokens=500 if is_local_gemma else 2500,
         )
+
+    @staticmethod
+    def _compact_reports(reports: dict) -> dict:
+        """Keep debate evidence within Gemma 4B's practical context window."""
+        allowed = {
+            "agent", "ticker", "score", "moat_score", "confidence", "error",
+            "bull_points", "bear_points", "key_metrics_cited", "key_macro_signals",
+            "valuation_verdict", "growth_drivers", "ranked_risks",
+            "sector_regime_multiplier", "regime_label", "thesis_invalidating_risk",
+        }
+        compact = {}
+        for name, report in (reports or {}).items():
+            if not isinstance(report, dict):
+                compact[name] = report
+                continue
+            item = {key: report[key] for key in allowed if key in report}
+            for key in ("bull_points", "bear_points", "growth_drivers", "ranked_risks"):
+                if isinstance(item.get(key), list):
+                    item[key] = [str(value)[:180] for value in item[key][:2]]
+            compact[name] = item
+        return compact
 
     def _load_round_instruction(self, round_id: str) -> str:
         instructions = {
@@ -127,9 +162,21 @@ class DebateOrchestrator:
         return instructions.get(round_id, "Continue the debate.")
 
     def _extract_score(self, text: str, label: str) -> float:
-        pattern = rf"{label}:\s*(\d+(?:\.\d+)?)/10"
-        match = re.search(pattern, text, re.IGNORECASE)
-        return float(match.group(1)) if match else 5.0
+        # Gemma commonly shortens the required label to "Conviction Score".
+        # Accept that form while keeping the role-specific label preferred.
+        labels = [label]
+        if label.upper().startswith("BULL ") or label.upper().startswith("BEAR "):
+            labels.append("CONVICTION SCORE")
+        for candidate in labels:
+            pattern = rf"{re.escape(candidate)}\s*:?\s*(\d+(?:\.\d+)?)\s*(?:/\s*10)?"
+            matches = list(re.finditer(pattern, text or "", re.IGNORECASE))
+            if matches:
+                return float(matches[-1].group(1))
+        # Shortest form produced by some local responses: "Conviction: 8/10".
+        match = re.search(r"conviction\s*:?\s*(\d+(?:\.\d+)?)\s*(?:/\s*10)?", text or "", re.IGNORECASE)
+        if match:
+            return float(match.group(1))
+        return 5.0
 
     def _finalize(self, transcript, error=None):
         bull_scores = []

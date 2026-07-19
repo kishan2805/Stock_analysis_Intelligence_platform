@@ -1,0 +1,4 @@
+rank,ticker,company,resolution_status,rank_score,conviction,saip_rating,channel_entry,channel_target,channel_stop,channels,channel_action,video_ids
+1,DIVISLAB.NS,Divis Laboratories,Resolved,85.1,100.0,6.28,,,,Groww,,
+2,JSWINFRA.NS,JSW Infra,Resolved,83.2,100.0,5.79,,,,Groww,,
+3,SHYAMMETL.NS,Shyam Metallics,Resolved,80.9,100.0,5.22,,,,Groww,,

@@ -1,6 +1,8 @@
 import logging
 import urllib.request
 import urllib.parse
+import ssl
+import certifi
 import yfinance as yf
 import feedparser
 
@@ -11,12 +13,13 @@ _UA = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/124.0.0.0 Safari/537.36"
 )
+_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 
 def _parse_feed_with_ua(url: str) -> list:
     try:
         req = urllib.request.Request(url, headers={"User-Agent": _UA})
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10, context=_SSL_CONTEXT) as resp:
             content = resp.read()
         return feedparser.parse(content).entries
     except Exception as e:
@@ -47,7 +50,7 @@ class RegimeFetcher:
     def _fetch_market_indicators(self) -> dict:
         symbols = {
             "vix_us":      "^VIX",
-            "vix_india":   "^NIFVIX",
+            "vix_india":   "^INDIAVIX",
             "crude_brent": "BZ=F",
             "dxy":         "DX-Y.NYB",
             "usdinr":      "USDINR=X",

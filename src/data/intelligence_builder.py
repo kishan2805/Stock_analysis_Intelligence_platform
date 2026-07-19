@@ -9,6 +9,10 @@ from src.utils.cache import Cache
 logger = logging.getLogger(__name__)
 
 
+class MarketDataUnavailableError(ValueError):
+    """Raised when a ticker cannot be validated with any market data."""
+
+
 class IntelligenceBuilder:
     def __init__(self, config):
         self.config = config
@@ -21,7 +25,9 @@ class IntelligenceBuilder:
         duration_months: int,
         depth: str,
     ) -> KnowledgeGraph:
-        cache_key = f"kg_{ticker}_{exchange}"
+        # v2 invalidates cached graphs created before debt-to-equity was
+        # normalised from Yahoo's percentage representation.
+        cache_key = f"kg_v2_{ticker}_{exchange}"
         cached = self.cache.get(
             cache_key,
             ttl_hours=self.config.cache.knowledge_graph_ttl_hours
@@ -32,6 +38,15 @@ class IntelligenceBuilder:
 
         logger.info(f"Building KnowledgeGraph for {ticker}")
         stock_data  = StockFetcher().fetch(ticker, exchange)
+        has_price = stock_data.get("valuation_metrics", {}).get("current_price") is not None
+        has_financials = any(stock_data.get(field) for field in (
+            "balance_sheet", "income_statement", "cash_flow",
+        ))
+        if not has_price and not has_financials:
+            raise MarketDataUnavailableError(
+                f"No market data found for '{ticker}'. Check the ticker and exchange before analysis. "
+                "For example, Apple is AAPL (US), not AAPA."
+            )
         news_data   = NewsFetcher().fetch(stock_data.get("company_name", ticker), ticker)
         regime_data = RegimeFetcher().fetch()
 
