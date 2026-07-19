@@ -96,7 +96,9 @@ class NvidiaClient(BaseLLMClient):
                 ],
                 temperature=0,
                 max_tokens=8,
-                timeout=20,
+                # NVIDIA's hosted models can be rate-limited briefly. Give the
+                # lightweight availability probe one minute before failing over.
+                timeout=60,
                 **request_options,
             )
             return True
