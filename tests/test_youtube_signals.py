@@ -4,6 +4,7 @@ from src.youtube_signals.aggregator import aggregate
 from src.youtube_signals.conviction_ranker import conviction_score, diversify, ranking_score, score
 from src.youtube_signals.schemas import StockCall
 from src.youtube_signals.ticker_resolver import _choose_nse_candidate, resolve
+from src.youtube_signals.monitoring import ChannelStore
 
 
 def test_aggregates_resolved_calls_and_retains_unresolved_calls():
@@ -26,7 +27,7 @@ def test_ranking_is_bounded_and_sector_cap_is_applied():
     assert len(diversify([(stock[0], {"final_rating": 8}, value)], 1, 1)) == 1
 
 
-def test_rank_score_blends_channel_conviction_and_hfip_rating():
+def test_rank_score_blends_channel_conviction_and_saip_rating():
     call = StockCall(video_id="one", channel_name="A", publish_date=date.today(), company_name_raw="Tata Motors", action="BUY")
     stock, _ = aggregate([resolve(call)])
     conviction = conviction_score(stock[0], 1)
@@ -73,3 +74,13 @@ def test_ticker_search_rejects_tied_candidates():
         {"symbol": "TWO.NS", "exchange": "NSE", "longname": "Acme Industries Limited"},
     ]
     assert _choose_nse_candidate("Acme Industries", quotes) is None
+
+
+def test_saved_channel_library_persists_enablement_and_removal(tmp_path):
+    store = ChannelStore(str(tmp_path / "monitoring.sqlite3"))
+    channel = store.add_channel("https://www.youtube.com/@example/videos", "Example")
+    assert store.list_channels() == [channel]
+    store.set_enabled(channel.id, False)
+    assert not store.list_channels()[0].enabled
+    store.delete_channel(channel.id)
+    assert store.list_channels() == []

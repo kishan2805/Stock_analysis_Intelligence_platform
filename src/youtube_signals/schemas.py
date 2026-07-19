@@ -67,9 +67,9 @@ class RankedStockReport(BaseModel):
     sell_side_view: str
     source_channels: list[str]
     mention_count: int
-    hfip_rating: float | None = None
-    hfip_model: str | None = None
-    hfip_execution_mode: str = "quick"
+    saip_rating: float | None = None
+    saip_model: str | None = None
+    saip_execution_mode: str = "quick"
     data_quality: Literal["Complete", "Degraded"] = "Degraded"
     data_quality_notes: list[str] = Field(default_factory=list)
     sector: str | None = None

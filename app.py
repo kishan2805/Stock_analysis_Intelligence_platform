@@ -9,11 +9,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 from src.utils.config_loader import load_config
 from src.pipeline.orchestrator import PipelineOrchestrator
 from src.data.intelligence_builder import MarketDataUnavailableError
+from src.utils.pdf_report import GLOSSARY, build_main_analysis_pdf
 
-st.set_page_config(page_title="SIAP v2.5", layout="wide")
-st.title("Hedge Fund Intelligence Platform v2.5")
-st.caption("AI-powered multi-agent stock analysis")
+st.set_page_config(page_title="SAIP — Stock Analysis", layout="wide")
+st.title("SAIP — Stock Analysis")
+st.caption("SAIP (Stock Analysis Intelligence Platform) · AI-powered multi-agent stock analysis")
 st.sidebar.info("📺 Scan public YouTube videos or channels from **YouTube Stock Scanner** in the page list.")
+with st.expander("How to read values", expanded=False):
+    for label, meaning in GLOSSARY:
+        st.write(f"**{label}** - {meaning}")
 
 # Sidebar config
 with st.sidebar:
@@ -55,11 +59,21 @@ if submitted and config and ticker_input.strip():
             cio = result["cio"]
             debate = result.get("debate", {})
             audited = result.get("audited_bundle", {})
+            report_pdf = build_main_analysis_pdf(result, {
+                "ticker": ticker, "exchange": exchange, "duration": duration,
+                "depth": depth, "skip_debate": skip_debate,
+            })
 
             # Tab 1: Final Report
             tab1, tab2, tab3, tab4 = st.tabs(["Final Report", "Agent Scores", "Debate", "Raw JSON"])
 
             with tab1:
+                st.download_button(
+                    "Download full SAIP PDF report", report_pdf,
+                    file_name=f"saip_{ticker.replace('.', '_')}_report.pdf",
+                    mime="application/pdf", type="primary",
+                )
+                st.caption("The PDF includes the final report, all agent reports, deterministic risk, debate transcript, data-quality notes, and the value guide.")
                 data_gaps = result.get("kg_metadata", {}).get("data_gaps", [])
                 failed_agents = [
                     name for name, report in result.get("agent_reports", {}).items()
@@ -93,6 +107,7 @@ if submitted and config and ticker_input.strip():
                 cols[3].metric("Next Catalyst", cio.get('next_catalyst_to_watch', 'N/A'))
 
             with tab2:
+                st.caption("Value guide: N/A = not available; N/S = not stated by a source; ERROR = that component failed and was not used as evidence.")
                 agent_data = []
                 for name, report in result.get("agent_reports", {}).items():
                     if isinstance(report, dict):

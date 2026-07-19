@@ -5,7 +5,7 @@ from .schemas import AggregatedStock
 
 
 def conviction_score(stock: AggregatedStock, channels_scanned: int) -> float:
-    """Score the strength of the video evidence, independent of HFIP analysis."""
+    """Score the strength of the video evidence, independent of SAIP analysis."""
     mention = min(1.0, len(stock.channels) / max(1, channels_scanned))
     newest = max(c.publish_date for c in stock.calls)
     recency = math.exp(-((date.today() - newest).days) / 30)
@@ -15,9 +15,9 @@ def conviction_score(stock: AggregatedStock, channels_scanned: int) -> float:
 
 
 def ranking_score(conviction: float, cio: dict | None) -> float:
-    """Blend channel evidence (60%) with the independent HFIP rating (40%)."""
-    hfip_score = float((cio or {}).get("final_rating", 5.0)) * 10
-    return round(.60 * conviction + .40 * hfip_score, 1)
+    """Blend channel evidence (60%) with the independent SAIP rating (40%)."""
+    saip_score = float((cio or {}).get("final_rating", 5.0)) * 10
+    return round(.60 * conviction + .40 * saip_score, 1)
 
 
 def score(stock: AggregatedStock, channels_scanned: int, cio: dict | None) -> float:

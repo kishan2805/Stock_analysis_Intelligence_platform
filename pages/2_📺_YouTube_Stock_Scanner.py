@@ -1,24 +1,76 @@
 import asyncio
-import csv
-from io import StringIO
 from pathlib import Path
 import sys
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 from src.utils.config_loader import load_config
+from src.utils.pdf_report import GLOSSARY, build_scanner_pdf
 from src.youtube_signals import YouTubeScannerService
+from src.youtube_signals.exports import build_scan_csv
+from src.youtube_signals.monitoring import ChannelMonitoringService, ChannelStore
 
 st.set_page_config(page_title="YouTube Stock Scanner", layout="wide")
 st.title("📺 YouTube Stock Scanner")
-st.caption("Controlled beta — public videos only. Final rank score = 60% channel conviction + 40% HFIP rating. The shortlist is shown first; the CSV contains every deep-dived stock from the scan.")
+st.caption("Controlled beta — public videos only. Final rank score = 60% channel conviction + 40% SAIP rating. The shortlist is shown first; the CSV contains every deep-dived stock from the scan.")
+with st.expander("How to read values", expanded=False):
+    for label, meaning in GLOSSARY:
+        st.write(f"**{label}** - {meaning}")
+
+channel_store = ChannelStore()
+with st.expander("Saved channel library - latest one video per channel", expanded=False):
+    with st.form("add_saved_channel", clear_on_submit=True):
+        saved_url = st.text_input("Channel URL", placeholder="https://www.youtube.com/@Channel/videos")
+        saved_label = st.text_input("Label (optional)", placeholder="e.g. Groww")
+        add_channel = st.form_submit_button("Save channel")
+    if add_channel:
+        try:
+            channel_store.add_channel(saved_url, saved_label)
+            st.success("Channel saved.")
+        except Exception as exc:
+            st.error(str(exc))
+    saved_channels = channel_store.list_channels()
+    if saved_channels:
+        for channel in saved_channels:
+            left, middle, right = st.columns([5, 1, 1])
+            left.write(f"**{channel.label}**  \\n{channel.url}")
+            if middle.button("Disable" if channel.enabled else "Enable", key=f"saved-channel-toggle-{channel.id}"):
+                channel_store.set_enabled(channel.id, not channel.enabled)
+                st.rerun()
+            if right.button("Remove", key=f"saved-channel-delete-{channel.id}"):
+                channel_store.delete_channel(channel.id)
+                st.rerun()
+        if st.button("Analyse latest unseen video from every enabled channel", type="primary"):
+            status = st.status("Starting saved-channel run...", expanded=True)
+            try:
+                def progress(message): status.write(message)
+                run_id, monitored_result, monitored_videos = asyncio.run(
+                    ChannelMonitoringService(load_config(), channel_store, progress).run_latest()
+                )
+                output_dir = Path("output/youtube-runs") / run_id
+                output_dir.mkdir(parents=True, exist_ok=True)
+                csv_path = output_dir / "youtube_stock_scan.csv"
+                pdf_path = output_dir / "youtube_stock_scan.pdf"
+                csv_path.write_text(build_scan_csv(monitored_result), encoding="utf-8")
+                pdf_path.write_bytes(build_scanner_pdf(monitored_result, run_id))
+                channel_store.record_artifact(run_id, "csv", csv_path)
+                channel_store.record_artifact(run_id, "pdf", pdf_path)
+                st.session_state["youtube_result"] = monitored_result
+                st.session_state["youtube_monitoring_artifacts"] = {"run_id": run_id, "csv": csv_path, "pdf": pdf_path, "video_count": len(monitored_videos)}
+                status.update(label="Saved-channel run complete", state="complete")
+            except Exception as exc:
+                status.update(label="Saved-channel run failed", state="error")
+                st.error(str(exc))
+    else:
+        st.caption("No saved channels yet. Add public channel links above.")
+
 with st.form("youtube_scan"):
     urls_text = st.text_area("Video or channel URLs (one per line)", placeholder="https://www.youtube.com/watch?v=...\nhttps://www.youtube.com/@Channel/videos")
     c1, c2, c3 = st.columns(3)
     lookback = c1.selectbox("Channel lookback", [7, 14, 30], index=1)
     max_videos = c2.slider("Videos per channel", 1, 10, 4)
     top_n = c3.slider("Ranked stocks", 1, 6, 5)
-    skip_debate = st.checkbox("Skip HFIP bull/bear debate (faster)", value=False)
+    skip_debate = st.checkbox("Skip SAIP bull/bear debate (faster)", value=False)
     submitted = st.form_submit_button("Scan public videos", type="primary")
 
 if submitted:
@@ -47,10 +99,10 @@ if result:
         with st.container(border=True):
             st.subheader(f"#{report.rank} {report.company_name} ({report.ticker}) — rank score {report.ranking_score}/100")
             a, b, c = st.columns(3)
-            a.metric("Channel entry", report.suggested_buy_price or "Not stated")
-            b.metric("Channel target", report.target_price or "Not stated")
-            c.metric("Channel stop loss", report.stop_loss or "Not stated")
-            st.caption(f"Channel conviction: {report.conviction_score}/100 · {report.mention_count} video(s) · {', '.join(report.source_channels)} · HFIP {report.hfip_execution_mode} rating: {report.hfip_rating or 'Unavailable'}/10 · HFIP model: {report.hfip_model or 'Unavailable'}")
+            a.metric("Channel entry", report.suggested_buy_price or "N/S")
+            b.metric("Channel target", report.target_price or "N/S")
+            c.metric("Channel stop loss", report.stop_loss or "N/S")
+            st.caption(f"Channel conviction: {report.conviction_score}/100 · {report.mention_count} video(s) · {', '.join(report.source_channels)} · SAIP {report.saip_execution_mode} rating: {report.saip_rating or 'Unavailable'}/10 · SAIP model: {report.saip_model or 'Unavailable'}")
             if report.data_quality == "Complete":
                 st.success("Data quality: Complete")
             else:
@@ -70,7 +122,7 @@ if result:
             "Company": s.company_name,
             "Rank score": report_by_ticker.get(s.ticker).ranking_score if s.ticker in report_by_ticker else None,
             "Conviction": report_by_ticker.get(s.ticker).conviction_score if s.ticker in report_by_ticker else None,
-            "HFIP rating": report_by_ticker.get(s.ticker).hfip_rating if s.ticker in report_by_ticker else None,
+            "SAIP rating": report_by_ticker.get(s.ticker).saip_rating if s.ticker in report_by_ticker else None,
             "Videos": s.mention_count,
             "Channels": ", ".join(s.channels),
             "Action": s.consensus_action,
@@ -86,22 +138,14 @@ if result:
                 st.session_state["prefill_ticker"] = ticker.strip().upper()
                 st.switch_page("app.py")
     if all_reports or result["unresolved"]:
-        buffer = StringIO(); writer = csv.writer(buffer); writer.writerow(["rank", "ticker", "company", "resolution_status", "rank_score", "conviction", "hfip_rating", "channel_entry", "channel_target", "channel_stop", "channels", "channel_action", "video_ids"])
-        for r in all_reports:
-            writer.writerow([r.rank, r.ticker, r.company_name, "Resolved", r.ranking_score, r.conviction_score, r.hfip_rating, r.suggested_buy_price, r.target_price, r.stop_loss, "; ".join(r.source_channels), "", ""])
-        unresolved_by_name = {}
-        for call in result["unresolved"]:
-            key = call.company_name_raw.strip().casefold()
-            item = unresolved_by_name.setdefault(key, {"company": call.company_name_raw, "channels": set(), "actions": set(), "video_ids": set()})
-            item["channels"].add(call.channel_name)
-            item["actions"].add(call.action)
-            item["video_ids"].add(call.video_id)
-        for item in unresolved_by_name.values():
-            writer.writerow(["", "", item["company"], "Unresolved — confirm NSE ticker", "", "", "", "", "", "", "; ".join(sorted(item["channels"])), "; ".join(sorted(item["actions"])), "; ".join(sorted(item["video_ids"]))])
-        st.download_button("Export all ranked stocks CSV", buffer.getvalue(), "youtube_stock_scan.csv", "text/csv")
+        st.download_button("Export all ranked stocks CSV", build_scan_csv(result), "youtube_stock_scan.csv", "text/csv")
     if result["errors"]:
         with st.expander("Skipped videos and scan issues"):
             for error in result["errors"]: st.write("• " + error)
 
-with st.expander("Planned channel monitoring", expanded=False):
-    st.info("Later: choose channels, schedule a daily scan of their newest video, and configure delivery. Telegram/WhatsApp delivery is not connected in this release.")
+artifacts = st.session_state.get("youtube_monitoring_artifacts")
+if artifacts:
+    st.success(f"Saved-channel run {artifacts['run_id']} processed {artifacts['video_count']} latest video(s).")
+    left, right = st.columns(2)
+    left.download_button("Download saved-run CSV", Path(artifacts["csv"]).read_bytes(), "youtube_stock_scan.csv", "text/csv")
+    right.download_button("Download saved-run PDF", Path(artifacts["pdf"]).read_bytes(), "youtube_stock_scan.pdf", "application/pdf")

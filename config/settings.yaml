@@ -27,7 +27,7 @@ youtube_signals:
     # One local Gemma server should process one stock pipeline at a time.
     deep_dive_concurrency: 1
   deep_dive:
-    # Architecture §6: scanner deep-dives reuse the quick HFIP mode.
+    # Architecture §6: scanner deep-dives reuse the quick SAIP mode.
     execution_mode: "quick"
     skip_debate: false
     timeout_seconds: 360
