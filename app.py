@@ -14,13 +14,13 @@ from src.utils.pdf_report import GLOSSARY, build_main_analysis_pdf
 st.set_page_config(page_title="SAIP — Stock Analysis", layout="wide")
 st.title("SAIP — Stock Analysis")
 st.caption("SAIP (Stock Analysis Intelligence Platform) · AI-powered multi-agent stock analysis")
-st.sidebar.info("📺 Scan public YouTube videos or channels from **YouTube Stock Scanner** in the page list.")
-with st.expander("How to read values", expanded=False):
-    for label, meaning in GLOSSARY:
-        st.write(f"**{label}** - {meaning}")
 
 # Sidebar config
 with st.sidebar:
+    st.page_link("app.py", label="SAIP Stock Analysis", icon="📊")
+    st.page_link("pages/2_📺_YouTube_Stock_Scanner.py", label="YouTube Stock Scanner", icon="📺")
+    st.page_link("pages/3_🔐_SAIP_Admin.py", label="SAIP Admin", icon="🔐")
+    st.divider()
     st.header("Configuration")
     config_path = st.text_input("Config file", value="config/settings.yaml")
     try:
@@ -174,3 +174,7 @@ if submitted and config and ticker_input.strip():
             st.error(f"Pipeline failed: {e}")
             import traceback
             st.code(traceback.format_exc())
+
+with st.expander("How to read values", expanded=False):
+    for label, meaning in GLOSSARY:
+        st.write(f"**{label}** - {meaning}")

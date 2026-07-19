@@ -14,6 +14,10 @@ from src.youtube_signals.monitoring import ChannelStore, queue_daily_approval, r
 st.set_page_config(page_title="SAIP Admin", layout="wide")
 st.title("🔐 SAIP Admin Controls")
 st.caption("Local-admin approval is required before any all-user scan can use this laptop's compute.")
+with st.sidebar:
+    st.page_link("app.py", label="SAIP Stock Analysis", icon="📊")
+    st.page_link("pages/2_📺_YouTube_Stock_Scanner.py", label="YouTube Stock Scanner", icon="📺")
+    st.page_link("pages/3_🔐_SAIP_Admin.py", label="SAIP Admin", icon="🔐")
 
 load_dotenv()
 configured_password = os.getenv("ADMIN_PASSWORD")

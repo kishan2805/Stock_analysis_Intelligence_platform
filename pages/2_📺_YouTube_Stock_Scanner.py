@@ -14,9 +14,10 @@ st.set_page_config(page_title="YouTube Stock Scanner", layout="wide")
 st.title("📺 YouTube Stock Scanner")
 st.caption("Controlled beta — public videos only. Final rank score = 60% channel conviction + 40% SAIP rating. The shortlist is shown first; the CSV contains every deep-dived stock from the scan.")
 subject_id = st.text_input("Unique subject / user ID", key="youtube_subject_id", placeholder="e.g. client-001 or telegram-chat-123456", help="All saved channels, videos, runs, and artifacts are partitioned by this ID.")
-with st.expander("How to read values", expanded=False):
-    for label, meaning in GLOSSARY:
-        st.write(f"**{label}** - {meaning}")
+with st.sidebar:
+    st.page_link("app.py", label="SAIP Stock Analysis", icon="📊")
+    st.page_link("pages/2_📺_YouTube_Stock_Scanner.py", label="YouTube Stock Scanner", icon="📺")
+    st.page_link("pages/3_🔐_SAIP_Admin.py", label="SAIP Admin", icon="🔐")
 
 channel_store = ChannelStore()
 with st.expander("Saved channel library - latest one video per channel", expanded=False):
@@ -151,3 +152,7 @@ if artifacts:
     left, right = st.columns(2)
     left.download_button("Download saved-run CSV", Path(artifacts["csv"]).read_bytes(), "youtube_stock_scan.csv", "text/csv")
     right.download_button("Download saved-run PDF", Path(artifacts["pdf"]).read_bytes(), "youtube_stock_scan.pdf", "application/pdf")
+
+with st.expander("How to read values", expanded=False):
+    for label, meaning in GLOSSARY:
+        st.write(f"**{label}** - {meaning}")
