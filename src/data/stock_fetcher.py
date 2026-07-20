@@ -133,8 +133,8 @@ class StockFetcher:
             return []
 
     def _extract_ratios(self, info: dict) -> dict:
-        total_revenue = info.get("totalRevenue") or 1
-        fcf           = info.get("freeCashflow") or 0
+        total_revenue = _clean_value(info.get("totalRevenue"))
+        fcf           = _clean_value(info.get("freeCashflow"))
         ebitda        = info.get("ebitda") or 0
         total_debt    = info.get("totalDebt") or 0
 
@@ -155,18 +155,28 @@ class StockFetcher:
             "debt_equity_pct":    _clean_value(info.get("debtToEquity")),
             "current_ratio":      _clean_value(info.get("currentRatio")),
             "interest_coverage":  _clean_value(interest_coverage),
-            "fcf_margin":         _clean_value(round(fcf / total_revenue, 4) if total_revenue else 0),
+            "fcf_margin":         _clean_value(round(fcf / total_revenue, 4) if fcf is not None and total_revenue else None),
             "related_party_pct":  None,
         }
 
     def _extract_valuation(self, info: dict) -> dict:
+        market_cap = _clean_value(info.get("marketCap"))
+        free_cash_flow = _clean_value(info.get("freeCashflow"))
+        fcf_yield = None
+        try:
+            if market_cap and free_cash_flow:
+                fcf_yield = round(float(free_cash_flow) / float(market_cap) * 100, 2)
+        except (TypeError, ValueError, ZeroDivisionError):
+            pass
         return {
             "pe_ratio":      _clean_value(info.get("trailingPE")),
             "pb_ratio":      _clean_value(info.get("priceToBook")),
             "ev_ebitda":     _clean_value(info.get("enterpriseToEbitda")),
             "peg_ratio":     _clean_value(info.get("pegRatio")),
-            "market_cap":    _clean_value(info.get("marketCap")),
+            "market_cap":    market_cap,
             "current_price": _clean_value(info.get("currentPrice")),
+            "free_cash_flow": free_cash_flow,
+            "fcf_yield_pct": fcf_yield,
         }
 
     def _extract_promoter(self, stock, exchange: str) -> list:

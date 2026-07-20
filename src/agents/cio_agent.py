@@ -30,12 +30,23 @@ _VERDICT_BANDS = [
 
 _POSITION_SIZE = {
     ("STRONG BUY",  "LOW"):    "5-7%",
+    ("STRONG BUY",  "MEDIUM"): "3-5%",
+    ("STRONG BUY",  "HIGH"):   "1-2%",
     ("BUY",         "LOW"):    "3-5%",
     ("BUY",         "MEDIUM"): "2-3%",
     ("BUY",         "HIGH"):   "1-2%",
     ("ACCUMULATE",  "LOW"):    "1-2%",
     ("ACCUMULATE",  "MEDIUM"): "0.5-1%",
+    ("ACCUMULATE",  "HIGH"):   "0.25-0.5%",
     ("HOLD",        "LOW"):    "0%",
+    ("HOLD",        "MEDIUM"): "0%",
+    ("HOLD",        "HIGH"):   "0%",
+    ("REDUCE",      "LOW"):    "0%",
+    ("REDUCE",      "MEDIUM"): "0%",
+    ("REDUCE",      "HIGH"):   "0%",
+    ("AVOID",       "LOW"):    "0%",
+    ("AVOID",       "MEDIUM"): "0%",
+    ("AVOID",       "HIGH"):   "0%",
 }
 
 # Score key candidates for each agent slot — tries in order, first non-None wins
@@ -340,8 +351,6 @@ class CIOAgent:
 
         pos_key = (verdict, uncertainty)
         position_size = _POSITION_SIZE.get(pos_key, "0%")
-        if uncertainty == "HIGH" and verdict in ("BUY", "STRONG BUY"):
-            position_size = "1-2%"
 
         return {
             "agent":          "cio",

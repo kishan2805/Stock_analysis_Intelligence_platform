@@ -116,6 +116,16 @@ streamlit run app.py
 
 Open the local URL printed by Streamlit. The app contains named pages for **SAIP Stock Analysis**, **YouTube Stock Scanner**, and **SAIP Admin**.
 
+### Telegram bot
+
+SAIP can also receive private stock-analysis requests and manage a user's saved YouTube channel list through Telegram. Configure `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ADMIN_USER_ID` in `.env`, install dependencies, then run:
+
+```bash
+venv/bin/python -m src.telegram_bot.main
+```
+
+See [the Telegram integration guide](local/TELEGRAM_INTEGRATION.md) for the command flow, diagrams, privacy model, and deployment requirements.
+
 ### 5. Run from the command line
 
 ```bash
@@ -217,4 +227,3 @@ src/youtube_signals/                Discovery, transcripts, extraction, ranking,
 config/settings.yaml                Model routing and feature configuration
 user_database/                      Ignored local persistent database
 ```
-
