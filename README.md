@@ -244,6 +244,17 @@ The application is built in Python with Streamlit for the operator interface and
 
 The difficult part was not generating a recommendation; it was making the workflow trustworthy and operable. We handled incomplete market data without turning missing values into misleading zeros, made ticker selection explicit when a name could point to more than one market, retained unresolved video mentions rather than silently guessing, and designed the queue so stuck work can be rejected or restarted visibly. We learned that AI research tools need provenance, clear uncertainty, human approval for expensive background work, and interfaces that explain what the system is doing while it is doing it.
 
+### Accomplishments that we're proud of
+
+- Built a multi-agent research loop where a shared market-intelligence record, evidence audit, bull/bear debate, and CIO synthesis work together instead of producing one opaque model answer.
+- Made stock identification safer across NSE and US markets by asking users to select a market before normalising a ticker, and by keeping uncertain YouTube ticker matches unresolved rather than guessing.
+- Connected the workflow to the places users work: public YouTube signals become a ranked research shortlist, while private Telegram requests receive summaries and PDFs through a durable first-come-first-served queue.
+- Added practical operating controls: seven-day report reuse, live queue visibility, saved-channel ownership, explicit daily approval for all-user scans, and reject/restart controls for stuck work.
+
+### What's next for Stock Intelligence & Recommendation Platform
+
+Next, we plan to evolve SAIP from research on one stock into a portfolio intelligence layer. Planned work includes a portfolio manager with holdings, allocation, and risk views; historical backtesting for recommendation and strategy evaluation; and portfolio monitoring that sends Telegram updates when thesis, risk, price, or allocation conditions change. We also plan to support personalised watchlists, scheduled follow-ups, performance attribution, and clearer portfolio-level explainability while keeping human approval and evidence quality central to the workflow.
+
 ## Report value guide
 
 | Value | Meaning |
