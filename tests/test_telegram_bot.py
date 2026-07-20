@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from src.telegram_bot.bot import _is_youtube_channel_url, _is_youtube_video_url
-from src.telegram_bot.stocks import resolve_stock_options, resolve_stock_request
+from src.telegram_bot.stocks import resolve_stock_options, resolve_stock_request, resolve_ticker_for_exchange
 from src.telegram_bot.store import TelegramStore
 from src.telegram_bot.worker import TelegramWorkerManager, WorkerStatus
 from src.utils.pdf_report import _financial_metric_rows
@@ -80,6 +80,13 @@ def test_cross_market_stock_name_requires_an_exchange_choice():
     assert resolve_stock_request("Apple") is None
 
 
+def test_market_selection_normalises_lowercase_us_and_nse_tickers():
+    assert resolve_ticker_for_exchange("aapl", "US").ticker == "AAPL"
+    assert resolve_ticker_for_exchange("mahabank", "IN").ticker == "MAHABANK.NS"
+    assert resolve_ticker_for_exchange("mahabank.ns", "IN").ticker == "MAHABANK.NS"
+    assert resolve_ticker_for_exchange("bank of maharashtra", "IN") is None
+
+
 def test_channel_input_only_accepts_public_youtube_channel_urls():
     assert _is_youtube_channel_url("https://www.youtube.com/@example/videos")
     assert _is_youtube_channel_url("https://youtube.com/channel/UC123")
@@ -154,6 +161,43 @@ def test_admin_can_cancel_a_running_job_without_touching_queued_work(tmp_path):
     assert cancelled.status == "rejected"
     assert cancelled.progress_text == "Cancelled by SAIP admin"
     assert store.cancel_running_job("video", queued_job.id) is None
+
+
+def test_recent_stock_report_is_reused_as_a_completed_job_for_another_user(tmp_path):
+    store = TelegramStore(str(tmp_path / "monitoring.sqlite3"))
+    source_user = store.ensure_user(1, 1, "Source user", None)
+    requesting_user = store.ensure_user(2, 2, "Requesting user", None)
+    source_job = store.create_analysis_job(source_user, "AAPL", "US")
+    assert store.claim_job(source_job.id) is not None
+    report = tmp_path / "aapl.pdf"
+    report.write_bytes(b"pdf")
+    store.complete_job(source_job.id, {"cio": {"final_rating": 8}}, report)
+
+    cached_job = store.create_cached_analysis_job(requesting_user, "AAPL", "US")
+
+    assert cached_job is not None
+    assert cached_job.status == "completed"
+    assert cached_job.owner_subject == requesting_user.subject_id
+    assert cached_job.cache_source_job_id == source_job.id
+    assert cached_job.result() == {"cio": {"final_rating": 8}}
+    assert cached_job.pdf_path == str(report)
+
+
+def test_cached_copies_do_not_extend_the_seven_day_report_lifetime(tmp_path):
+    store = TelegramStore(str(tmp_path / "monitoring.sqlite3"))
+    source_user = store.ensure_user(1, 1, "Source user", None)
+    requesting_user = store.ensure_user(2, 2, "Requesting user", None)
+    source_job = store.create_analysis_job(source_user, "AAPL", "US")
+    assert store.claim_job(source_job.id) is not None
+    report = tmp_path / "aapl.pdf"
+    report.write_bytes(b"pdf")
+    store.complete_job(source_job.id, {"cio": {"final_rating": 8}}, report)
+    assert store.create_cached_analysis_job(requesting_user, "AAPL", "US") is not None
+
+    with store._connect() as db:
+        db.execute("UPDATE telegram_analysis_jobs SET completed_at = ? WHERE id = ?", ("2000-01-01T00:00:00+00:00", source_job.id))
+
+    assert store.create_cached_analysis_job(requesting_user, "AAPL", "US") is None
 
 
 def test_restarting_running_work_force_stops_then_restarts_the_worker(tmp_path, monkeypatch):

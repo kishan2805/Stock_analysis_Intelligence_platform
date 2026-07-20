@@ -15,6 +15,7 @@ class StockRequest:
 
 _TICKER = re.compile(r"^[A-Z][A-Z0-9.\-]{0,14}$")
 _NSE_TICKER = re.compile(r"^[A-Z][A-Z0-9\-]{0,14}\.NS$")
+_NSE_SYMBOL = re.compile(r"^[A-Z][A-Z0-9\-]{0,14}$")
 
 # A human-friendly name can also have a listing in more than one market. Keep
 # verified collisions explicit so the Telegram bot never silently routes the
@@ -67,3 +68,14 @@ def resolve_stock_request(value: str) -> StockRequest | None:
     """Return the request only if its market is unambiguous."""
     options = resolve_stock_options(value)
     return options[0] if len(options) == 1 else None
+
+
+def resolve_ticker_for_exchange(value: str, exchange: str) -> StockRequest | None:
+    """Normalise a user-entered ticker after they explicitly select a market."""
+    candidate = "".join(value.strip().upper().split())
+    if exchange == "IN":
+        symbol = candidate.removesuffix(".NS")
+        return StockRequest(f"{symbol}.NS", "IN") if _NSE_SYMBOL.fullmatch(symbol) else None
+    if exchange == "US" and _TICKER.fullmatch(candidate) and not candidate.endswith(".NS"):
+        return StockRequest(candidate, "US")
+    return None

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import sqlite3
@@ -11,6 +11,9 @@ from uuid import uuid4
 
 def _timestamp() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+REPORT_CACHE_TTL_DAYS = 7
 
 
 @dataclass(frozen=True)
@@ -44,6 +47,7 @@ class AnalysisJob:
     error: str | None
     progress_text: str | None
     updated_at: str | None
+    cache_source_job_id: str | None
 
     def result(self) -> dict | None:
         return json.loads(self.result_json) if self.result_json else None
@@ -108,7 +112,8 @@ class TelegramStore:
                     pdf_path TEXT,
                     error TEXT,
                     progress_text TEXT,
-                    updated_at TEXT
+                    updated_at TEXT,
+                    cache_source_job_id TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_telegram_jobs_owner
                     ON telegram_analysis_jobs(owner_subject, created_at DESC);
@@ -138,6 +143,7 @@ class TelegramStore:
             )
             self._ensure_column(db, "telegram_analysis_jobs", "progress_text", "TEXT")
             self._ensure_column(db, "telegram_analysis_jobs", "updated_at", "TEXT")
+            self._ensure_column(db, "telegram_analysis_jobs", "cache_source_job_id", "TEXT")
             self._ensure_column(db, "telegram_video_analysis_jobs", "progress_text", "TEXT")
             self._ensure_column(db, "telegram_video_analysis_jobs", "updated_at", "TEXT")
             self._backfill_progress(db, "telegram_analysis_jobs", "Stock analysis")
@@ -192,6 +198,7 @@ class TelegramStore:
             created_at=row["created_at"], started_at=row["started_at"], completed_at=row["completed_at"],
             result_json=row["result_json"], pdf_path=row["pdf_path"], error=row["error"],
             progress_text=row["progress_text"], updated_at=row["updated_at"],
+            cache_source_job_id=row["cache_source_job_id"],
         )
 
     @staticmethod
@@ -275,6 +282,77 @@ class TelegramStore:
             )
         return self.get_job(job_id)  # type: ignore[return-value]
 
+    def find_cached_analysis_report(
+        self,
+        ticker: str,
+        exchange: str,
+        duration_months: int,
+        depth: str,
+        *,
+        exclude_job_id: str | None = None,
+    ) -> AnalysisJob | None:
+        """Find one generated stock report still valid for the seven-day cache."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=REPORT_CACHE_TTL_DAYS)).isoformat()
+        query = """
+            SELECT * FROM telegram_analysis_jobs
+            WHERE ticker = ? AND exchange = ? AND duration_months = ? AND depth = ?
+              AND status = 'completed' AND completed_at >= ?
+              AND result_json IS NOT NULL AND pdf_path IS NOT NULL
+              AND cache_source_job_id IS NULL
+        """
+        values: list[str | int] = [ticker, exchange, duration_months, depth, cutoff]
+        if exclude_job_id:
+            query += " AND id != ?"
+            values.append(exclude_job_id)
+        query += " ORDER BY completed_at DESC"
+        with self._connect() as db:
+            rows = db.execute(query, values).fetchall()
+        for row in rows:
+            job = self._job(row)
+            if job.pdf_path and Path(job.pdf_path).is_file():
+                return job
+        return None
+
+    def create_cached_analysis_job(self, user: TelegramUser, ticker: str, exchange: str) -> AnalysisJob | None:
+        """Create a completed requester-owned record from a reusable report."""
+        source = self.find_cached_analysis_report(ticker, exchange, user.duration_months, user.analysis_depth)
+        if not source:
+            return None
+        now, job_id = _timestamp(), uuid4().hex
+        with self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO telegram_analysis_jobs (
+                    id, owner_subject, telegram_user_id, chat_id, ticker, exchange,
+                    duration_months, depth, status, created_at, completed_at, result_json,
+                    pdf_path, progress_text, updated_at, cache_source_job_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    job_id, user.subject_id, user.telegram_user_id, user.chat_id, ticker, exchange,
+                    user.duration_months, user.analysis_depth, now, now, source.result_json,
+                    source.pdf_path, "Reused cached report generated within the last 7 days", now, source.id,
+                ),
+            )
+        return self.get_job(job_id)
+
+    def complete_job_from_cache(self, job_id: str, source: AnalysisJob) -> AnalysisJob | None:
+        """Finish an already-claimed duplicate job without rerunning the pipeline."""
+        now = _timestamp()
+        with self._connect() as db:
+            updated = db.execute(
+                """
+                UPDATE telegram_analysis_jobs
+                SET status = 'completed', completed_at = ?, result_json = ?, pdf_path = ?, error = NULL,
+                    progress_text = 'Reused cached report generated within the last 7 days', updated_at = ?,
+                    cache_source_job_id = ?
+                WHERE id = ? AND status = 'running'
+                """,
+                (now, source.result_json, source.pdf_path, now, source.id, job_id),
+            ).rowcount
+            row = db.execute("SELECT * FROM telegram_analysis_jobs WHERE id = ?", (job_id,)).fetchone() if updated else None
+        return self._job(row) if row else None
+
     def get_job(self, job_id: str) -> AnalysisJob | None:
         with self._connect() as db:
             row = db.execute("SELECT * FROM telegram_analysis_jobs WHERE id = ?", (job_id,)).fetchone()
@@ -331,7 +409,7 @@ class TelegramStore:
                 """
                 UPDATE telegram_analysis_jobs
                 SET status = 'completed', completed_at = ?, result_json = ?, pdf_path = ?, error = NULL,
-                    progress_text = 'Stock analysis complete', updated_at = ?
+                    progress_text = 'Stock analysis complete', updated_at = ?, cache_source_job_id = NULL
                 WHERE id = ? AND status = 'running'
                 """,
                 (_timestamp(), payload, str(pdf_path), _timestamp(), job_id),

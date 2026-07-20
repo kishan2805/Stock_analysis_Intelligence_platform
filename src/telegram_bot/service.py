@@ -60,8 +60,23 @@ class TelegramAnalysisService:
     def queue_analysis(self, user: TelegramUser, ticker: str, exchange: str) -> AnalysisJob:
         return self.store.create_analysis_job(user, ticker, exchange)
 
+    def reuse_cached_analysis(self, user: TelegramUser, ticker: str, exchange: str) -> AnalysisJob | None:
+        """Create this user's completed job record from a recent source report."""
+        return self.store.create_cached_analysis_job(user, ticker, exchange)
+
     async def run_claimed_job(self, job: AnalysisJob) -> None:
         try:
+            cached_source = self.store.find_cached_analysis_report(
+                job.ticker, job.exchange, job.duration_months, job.depth, exclude_job_id=job.id
+            )
+            if cached_source:
+                reused_job = self.store.complete_job_from_cache(job.id, cached_source)
+                if reused_job:
+                    result = reused_job.result()
+                    pdf_path = Path(reused_job.pdf_path) if reused_job.pdf_path else None
+                    if result and pdf_path and pdf_path.is_file():
+                        await self._send_report(reused_job, result, pdf_path)
+                        return
             self.store.update_stock_progress(job.id, "Building market intelligence and running SAIP agents")
             # The existing debate stage makes synchronous model calls.  Run the
             # complete pipeline in a worker thread so bot updates stay responsive.

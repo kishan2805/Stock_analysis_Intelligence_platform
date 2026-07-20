@@ -17,7 +17,7 @@ from src.youtube_signals.monitoring import ChannelStore
 
 from .config import TelegramConfig, load_telegram_config
 from .service import TelegramAnalysisService, TelegramFCFSQueue, TelegramVideoAnalysisService
-from .stocks import StockRequest, resolve_stock_options
+from .stocks import StockRequest, resolve_stock_options, resolve_ticker_for_exchange
 from .store import TelegramStore, TelegramUser
 
 logger = logging.getLogger(__name__)
@@ -111,6 +111,25 @@ def _settings_view(user: TelegramUser) -> tuple[str, InlineKeyboardMarkup]:
     return text, InlineKeyboardMarkup(buttons)
 
 
+def _market_picker() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("India (NSE)", callback_data="stocks:market:IN"),
+        InlineKeyboardButton("United States", callback_data="stocks:market:US"),
+    ]])
+
+
+async def _ask_for_market(update: Update, context: ContextTypes.DEFAULT_TYPE, value: str | None = None) -> None:
+    """Ask the user to select the market before normalising an entered ticker."""
+    context.user_data["awaiting"] = "ticker_market"
+    if value:
+        context.user_data["pending_ticker"] = value
+        text = f"Choose the market for `{value.strip()}`. I will normalise the ticker after you choose."
+    else:
+        context.user_data.pop("pending_ticker", None)
+        text = "Choose a market, then send its ticker. For example: MAHABANK for NSE or AAPL for the United States."
+    await update.effective_message.reply_text(text, reply_markup=_market_picker())
+
+
 async def _edit_message_if_changed(query, text: str, keyboard: InlineKeyboardMarkup) -> None:
     """Telegram rejects a no-op edit; repeated button taps are harmless."""
     try:
@@ -192,8 +211,7 @@ async def analyze(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = _profile(update, context.application.bot_data["telegram_store"])
     value = " ".join(context.args).strip()
     if not value:
-        context.user_data["awaiting"] = "ticker"
-        await update.effective_message.reply_text("Send a ticker such as RELIANCE.NS or AAPL. I will queue a private report.")
+        await _ask_for_market(update, context)
         return
     if _is_youtube_video_url(value):
         await _queue_video_analysis(update, context, user, value)
@@ -204,9 +222,7 @@ async def analyze(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def _queue_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE, user: TelegramUser, value: str) -> None:
     options = resolve_stock_options(value)
     if not options:
-        await update.effective_message.reply_text(
-            "I could not safely identify that stock. Use an NSE ticker such as RELIANCE.NS or a US ticker such as AAPL."
-        )
+        await _ask_for_market(update, context, value)
         return
     if len(options) > 1:
         context.user_data["stock_market_options"] = options
@@ -227,7 +243,15 @@ async def _queue_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 async def _queue_stock_request(update: Update, context: ContextTypes.DEFAULT_TYPE, user: TelegramUser, request: StockRequest) -> None:
     context.user_data.pop("awaiting", None)
     context.user_data.pop("stock_market_options", None)
+    context.user_data.pop("pending_ticker", None)
     service: TelegramAnalysisService = context.application.bot_data["analysis_service"]
+    cached_job = service.reuse_cached_analysis(user, request.ticker, request.exchange)
+    if cached_job:
+        await update.effective_message.reply_text(
+            f"A matching SAIP report generated within the last 7 days is available for {cached_job.ticker}. Sending it now."
+        )
+        await service.send_latest_report(cached_job)
+        return
     job = service.queue_analysis(user, request.ticker, request.exchange)
     context.application.bot_data["analysis_queue"].start()
     await update.effective_message.reply_text(
@@ -286,6 +310,31 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         context.user_data["awaiting"] = "video"
         await query.message.reply_text("Send a public YouTube video URL, for example https://www.youtube.com/watch?v=VIDEO_ID")
         return
+    if data.startswith("stocks:market:"):
+        exchange = data.rsplit(":", 1)[1]
+        if exchange not in {"IN", "US"}:
+            return
+        pending_ticker = context.user_data.get("pending_ticker")
+        if pending_ticker:
+            request = resolve_ticker_for_exchange(str(pending_ticker), exchange)
+            if request:
+                await _queue_stock_request(update, context, user, request)
+                return
+            context.user_data["awaiting"] = f"ticker:{exchange}"
+            context.user_data.pop("pending_ticker", None)
+            await query.message.reply_text(
+                "That is not a valid ticker format. Send an NSE ticker such as MAHABANK or MAHABANK.NS."
+                if exchange == "IN"
+                else "That is not a valid ticker format. Send a US ticker such as AAPL."
+            )
+            return
+        context.user_data["awaiting"] = f"ticker:{exchange}"
+        await query.message.reply_text(
+            "Send an NSE ticker such as MAHABANK or MAHABANK.NS."
+            if exchange == "IN"
+            else "Send a US ticker such as AAPL."
+        )
+        return
     if data.startswith("stocks:choose:"):
         try:
             option_index = int(data.rsplit(":", 1)[1])
@@ -341,8 +390,20 @@ async def text_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
     user = _profile(update, context.application.bot_data["telegram_store"])
     value = (update.effective_message.text or "").strip()
-    if waiting == "ticker":
-        await _queue_analysis(update, context, user, value)
+    if waiting in {"ticker", "ticker_market"}:
+        await _ask_for_market(update, context, value)
+        return
+    if waiting in {"ticker:IN", "ticker:US"}:
+        exchange = waiting.rsplit(":", 1)[1]
+        request = resolve_ticker_for_exchange(value, exchange)
+        if not request:
+            await update.effective_message.reply_text(
+                "Please send an NSE ticker such as MAHABANK or MAHABANK.NS."
+                if exchange == "IN"
+                else "Please send a US ticker such as AAPL."
+            )
+            return
+        await _queue_stock_request(update, context, user, request)
         return
     if waiting == "channel":
         await _save_channel(update, context, user, value)
