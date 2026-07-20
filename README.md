@@ -4,13 +4,7 @@
 
 > Informational research only - not investment advice. Always verify market data and make independent decisions.
 
-## Hackathon summary
-
-SAIP turns a stock ticker or a public YouTube channel/video into a traceable research workflow. Instead of asking one model for a recommendation, it builds a shared market-intelligence record, asks specialist agents to analyse different dimensions, audits their evidence, runs a bull/bear debate, and produces a readable final report. Users can request reports privately through Telegram, while an admin retains visibility and control over the compute queue.
-
-**Repository:** [github.com/kishan2805/Stock_analysis_Intelligence_platform](https://github.com/kishan2805/Stock_analysis_Intelligence_platform)
-
-## What SAIP does
+## Features
 
 | Surface | Purpose |
 |---|---|
@@ -18,23 +12,6 @@ SAIP turns a stock ticker or a public YouTube channel/video into a traceable res
 | **YouTube Stock Scanner** | Extracts explicit Indian-stock calls from public videos/channels, resolves tickers conservatively, scores them, and exports CSV/PDF results. |
 | **Telegram Bot** | Lets users request a private stock or video analysis, select the correct market, receive the report, and manage channels. Recent reports are reused for seven days. |
 | **SAIP Admin** | Password-protected approval page for compute-heavy, all-user channel runs, Telegram-worker status, live queue activity, and reject/restart controls. |
-
-## How OpenAI Codex and GPT-5.6 were used
-
-OpenAI Codex, powered by GPT-5.6, was used as the development collaborator for this project. It helped us inspect the existing architecture, implement and test the Telegram workflow, strengthen ticker/market disambiguation, add first-come-first-served analysis queuing and seven-day report reuse, improve PDF output, and make the Streamlit admin surface observable and controllable.
-
-Codex was also used to document the design, review edge cases, and run the automated test suite after changes. The application does **not** present GPT-5.6 as a runtime investment model: SAIP's runtime model routing remains configurable in [`config/settings.yaml`](config/settings.yaml), and every investment output is clearly labelled as informational research rather than advice.
-
-## Suggested screenshot captions
-
-Use these captions when adding the project media to the hackathon submission.
-
-| Screenshot | Caption |
-|---|---|
-| SAIP Stock Analysis screen | **Configure a deep-dive:** choose an NSE or US ticker, time horizon, analysis depth, and whether to run the bull/bear debate. |
-| YouTube Stock Scanner screen | **Turn public videos into a research shortlist:** scan public videos or saved channels, extract explicit stock calls, and rank candidates for SAIP analysis. |
-| SAIP Admin — Telegram worker | **Operate private delivery safely:** start or stop the Telegram worker and see queued, running, and completed private analyses. |
-| SAIP Admin — channel library | **Keep compute under human control:** inspect saved user channels and require explicit daily approval before an all-user scan runs. |
 
 ## Agent orchestration
 
@@ -154,8 +131,6 @@ Configure `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ADMIN_USER_ID` in `.env`, install d
 venv/bin/python -m src.telegram_bot.main
 ```
 
-See [the Telegram integration guide](local/TELEGRAM_INTEGRATION.md) for the command flow, diagrams, privacy model, and deployment requirements.
-
 ### 5. Run from the command line
 
 ```bash
@@ -226,35 +201,6 @@ For background startup after login, configure this command with macOS `launchd`.
 
 The local database is durable on your laptop but is not a backup. Back up `user_database/` separately if the saved channels and run history matter.
 
-## Project story
-
-### Inspiration
-
-Investment research is often scattered across price data, company fundamentals, market news, analyst views, and fast-moving video commentary. A single confident-looking answer can hide whether it used reliable evidence, whether another perspective disagreed, or even which market the stock belongs to. We wanted to build a research companion that makes this work more structured, explainable, and available from the surfaces people already use.
-
-### What it does
-
-SAIP analyses NSE and US equities through a multi-agent workflow and produces a private, downloadable PDF report. Its public YouTube scanner finds explicit Indian-stock calls in videos or monitored channels, keeps uncertain ticker matches unresolved instead of guessing, and ranks shortlisted names using 60% channel conviction and 40% SAIP rating. Its Telegram bot lets users ask for an analysis in a private chat, select the intended market, manage channel subscriptions, and receive the completed summary and report.
-
-### How we built it
-
-The application is built in Python with Streamlit for the operator interface and SQLite for durable local state. A shared `KnowledgeGraph` combines market data, news, regime context, and deterministic risk calculations. Specialist agents cover fundamentals, macro, moat, growth and valuation, risk narrative, and market regime; an Evidence Auditor checks their claims before a structured bull/bear debate and CIO synthesis. The YouTube workflow uses public-video discovery, captions or speech-to-text, conservative extraction and ticker resolution, aggregation, ranking, CSV/PDF export, and an explicit admin approval gate for all-user runs. The Telegram worker persists requests, processes them first-come-first-served, and reuses a matching completed report for seven days.
-
-### Challenges and lessons
-
-The difficult part was not generating a recommendation; it was making the workflow trustworthy and operable. We handled incomplete market data without turning missing values into misleading zeros, made ticker selection explicit when a name could point to more than one market, retained unresolved video mentions rather than silently guessing, and designed the queue so stuck work can be rejected or restarted visibly. We learned that AI research tools need provenance, clear uncertainty, human approval for expensive background work, and interfaces that explain what the system is doing while it is doing it.
-
-### Accomplishments that we're proud of
-
-- Built a multi-agent research loop where a shared market-intelligence record, evidence audit, bull/bear debate, and CIO synthesis work together instead of producing one opaque model answer.
-- Made stock identification safer across NSE and US markets by asking users to select a market before normalising a ticker, and by keeping uncertain YouTube ticker matches unresolved rather than guessing.
-- Connected the workflow to the places users work: public YouTube signals become a ranked research shortlist, while private Telegram requests receive summaries and PDFs through a durable first-come-first-served queue.
-- Added practical operating controls: seven-day report reuse, live queue visibility, saved-channel ownership, explicit daily approval for all-user scans, and reject/restart controls for stuck work.
-
-### What's next for Stock Intelligence & Recommendation Platform
-
-Next, we plan to evolve SAIP from research on one stock into a portfolio intelligence layer. Planned work includes a portfolio manager with holdings, allocation, and risk views; historical backtesting for recommendation and strategy evaluation; and portfolio monitoring that sends Telegram updates when thesis, risk, price, or allocation conditions change. We also plan to support personalised watchlists, scheduled follow-ups, performance attribution, and clearer portfolio-level explainability while keeping human approval and evidence quality central to the workflow.
-
 ## Report value guide
 
 | Value | Meaning |
@@ -282,6 +228,7 @@ pages/3_🔐_SAIP_Admin.py             Password-protected all-user controls
 src/agents/                         Specialist agents and evidence auditor
 src/data/                           KnowledgeGraph, market/news/regime fetchers, risk engine
 src/pipeline/                       Orchestration, parallel stage, debate stage
+src/telegram_bot/                   Private Telegram requests, queue, notifications, and worker
 src/youtube_signals/                Discovery, transcripts, extraction, ranking, monitoring
 config/settings.yaml                Model routing and feature configuration
 user_database/                      Ignored local persistent database
