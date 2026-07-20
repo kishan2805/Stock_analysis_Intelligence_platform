@@ -1,4 +1,4 @@
-from src.agents.cio_agent import _safe_regime_multiplier
+from src.agents.cio_agent import _POSITION_SIZE, _safe_regime_multiplier
 from src.agents.cio_agent import CIOAgent
 from types import SimpleNamespace
 
@@ -6,6 +6,12 @@ from types import SimpleNamespace
 def test_risk_off_regime_multiplier_remains_negative():
     assert _safe_regime_multiplier(-0.4) == -0.4
     assert _safe_regime_multiplier(-9) == -1.5
+
+
+def test_accumulate_with_high_uncertainty_does_not_default_to_zero_position():
+    assert _POSITION_SIZE[("ACCUMULATE", "HIGH")] == "0.25-0.5%"
+    assert _POSITION_SIZE[("BUY", "MEDIUM")] == "2-3%"
+    assert _POSITION_SIZE[("STRONG BUY", "MEDIUM")] == "3-5%"
 
 
 def test_missing_specialist_is_not_replaced_with_neutral_five():

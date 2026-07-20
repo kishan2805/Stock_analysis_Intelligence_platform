@@ -19,6 +19,36 @@ def _missing_core_agents(agent_reports: dict) -> list[str]:
             missing.append(name)
     return missing
 
+
+def _report_key_metrics(kg) -> dict:
+    """Expose compact, source-derived metrics for the user-facing report."""
+    valuation = kg.valuation_metrics or {}
+    ratios = kg.key_ratios or {}
+    analyst = kg.analyst_ratings or {}
+    current_price = valuation.get("current_price")
+    analyst_target = analyst.get("price_target")
+    target_upside = None
+    try:
+        if current_price not in (None, 0) and analyst_target is not None:
+            target_upside = round((float(analyst_target) / float(current_price) - 1) * 100, 1)
+    except (TypeError, ValueError, ZeroDivisionError):
+        pass
+    return {
+        "current_price": current_price,
+        "market_cap": valuation.get("market_cap"),
+        "pe_ratio": valuation.get("pe_ratio"),
+        "pb_ratio": valuation.get("pb_ratio"),
+        "ev_ebitda": valuation.get("ev_ebitda"),
+        "free_cash_flow": valuation.get("free_cash_flow"),
+        "fcf_yield_pct": valuation.get("fcf_yield_pct"),
+        "fcf_margin": ratios.get("fcf_margin"),
+        "roe": ratios.get("roe"),
+        "debt_equity": ratios.get("debt_equity"),
+        "interest_coverage": ratios.get("interest_coverage"),
+        "analyst_target": analyst_target,
+        "target_upside_pct": target_upside,
+    }
+
 class PipelineOrchestrator:
     def __init__(self, config):
         self.config = config
@@ -91,9 +121,11 @@ class PipelineOrchestrator:
         return {
             "kg_metadata": {
                 "ticker": kg.ticker,
+                "exchange": kg.exchange,
                 "company": kg.company_name,
                 "fetched": kg.fetch_timestamp,
                 "data_gaps": kg.data_gaps,
+                "key_metrics": _report_key_metrics(kg),
             },
             "agent_reports": agent_reports,
             "det_risk": det_risk,

@@ -78,5 +78,13 @@ STRICT OUTPUT — valid JSON only:
     }
   ],
   "warnings": ["<data quality warnings>"],
-  "validated_reports": { "NOTE": "corrected versions of all 6 reports; only changed fields are shown" }
+  "validated_reports": {
+    "fundamental": { "only_changed_factual_field": "corrected value" }
+  }
 }
+
+`validated_reports` is an optional PATCH, not a replacement bundle. Use only
+the canonical pipeline keys: `fundamental`, `macro`, `moat`, `growth`,
+`market_regime`, and `risk_narrative`. Include only factual fields that need a
+correction. Do not include `NOTE`, do not omit the JSON object when there are
+no corrections (return `{}`), and never include or modify any score field.

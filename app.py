@@ -1,6 +1,5 @@
 import streamlit as st
 import asyncio
-import json
 import sys
 from pathlib import Path
 
@@ -9,15 +8,18 @@ sys.path.insert(0, str(Path(__file__).parent))
 from src.utils.config_loader import load_config
 from src.pipeline.orchestrator import PipelineOrchestrator
 from src.data.intelligence_builder import MarketDataUnavailableError
+from src.telegram_bot.notifications import send_cancellation_notification, send_rejection_notification
+from src.telegram_bot.store import TelegramStore
+from src.telegram_bot.worker import TelegramWorkerManager
 from src.utils.pdf_report import GLOSSARY, build_main_analysis_pdf
 
-st.set_page_config(page_title="SAIP — Stock Analysis", layout="wide")
-st.title("SAIP — Stock Analysis")
+st.set_page_config(page_title="SAIP — Stock Analysis Intelligence Platform", layout="wide")
+st.title("SAIP — Stock Analysis Intelligence Platform")
 st.caption("SAIP (Stock Analysis Intelligence Platform) · AI-powered multi-agent stock analysis")
 
 # Sidebar config
 with st.sidebar:
-    st.page_link("app.py", label="SAIP Stock Analysis", icon="📊")
+    st.page_link("app.py", label="SAIP Stock Analysis Intelligence Platform", icon="📊")
     st.page_link("pages/2_📺_YouTube_Stock_Scanner.py", label="YouTube Stock Scanner", icon="📺")
     st.page_link("pages/3_🔐_SAIP_Admin.py", label="SAIP Admin", icon="🔐")
     st.divider()
@@ -73,7 +75,7 @@ if submitted and config and ticker_input.strip():
                     file_name=f"saip_{ticker.replace('.', '_')}_report.pdf",
                     mime="application/pdf", type="primary",
                 )
-                st.caption("The PDF includes the final report, all agent reports, deterministic risk, debate transcript, data-quality notes, and the value guide.")
+                st.caption("The PDF includes the final report, agent scorecard, deterministic risk summary, debate transcript, data-quality notes, and the value guide. Raw JSON remains in this app only.")
                 data_gaps = result.get("kg_metadata", {}).get("data_gaps", [])
                 failed_agents = [
                     name for name, report in result.get("agent_reports", {}).items()
@@ -178,3 +180,58 @@ if submitted and config and ticker_input.strip():
 with st.expander("How to read values", expanded=False):
     for label, meaning in GLOSSARY:
         st.write(f"**{label}** - {meaning}")
+
+if st.session_state.get("saip_admin_authenticated"):
+    st.divider()
+    st.subheader("Queued Telegram analysis")
+    st.caption("Admin-only controls. Queued work can be rejected; a running request can be rejected or restarted to retry it.")
+    telegram_store = TelegramStore()
+    telegram_worker = TelegramWorkerManager()
+    actionable_jobs = [job for job in telegram_store.admin_job_activity() if job["status"] in {"queued", "running"}]
+    if not actionable_jobs:
+        st.caption("No queued or running stock or YouTube video analysis is awaiting a decision.")
+    for job in actionable_jobs:
+        left, reject_col, restart_col = st.columns([5, 1, 1])
+        left.write(f"**{job['kind']}** — {job['target']}  \\nRequested: {job['created_at']}")
+        is_running = job["status"] == "running"
+        reject_clicked = reject_col.button("Reject", key=f"main-reject-telegram-job-{job['id']}")
+        restart_clicked = is_running and restart_col.button("Restart", key=f"main-restart-telegram-job-{job['id']}")
+        if reject_clicked or restart_clicked:
+            handled = None
+            if reject_clicked:
+                handled = (
+                    telegram_store.cancel_running_job(job["job_type"], job["id"])
+                    if is_running
+                    else telegram_store.reject_queued_job(job["job_type"], job["id"])
+                )
+            if reject_clicked and not handled:
+                st.warning("That request has already started or was handled. Refresh and try again.")
+            elif restart_clicked:
+                try:
+                    restart_status = telegram_worker.restart_active_worker()
+                    st.success(f"Worker restarted: {restart_status.message}. The running request will retry from the queue.")
+                except Exception as exc:
+                    st.warning(f"Worker could not restart: {exc}")
+            else:
+                if is_running:
+                    follow_up = []
+                    try:
+                        restart_status = telegram_worker.restart_active_worker()
+                        follow_up.append(f"worker: {restart_status.message}")
+                    except Exception as exc:
+                        follow_up.append(f"worker restart failed: {exc}")
+                    try:
+                        asyncio.run(send_cancellation_notification(handled.chat_id, job["job_type"], job["target"]))
+                        follow_up.append("user notified")
+                    except Exception as exc:
+                        follow_up.append(f"Telegram notification failed: {exc}")
+                    st.success("Running request cancelled — " + "; ".join(follow_up))
+                else:
+                    try:
+                        asyncio.run(send_rejection_notification(handled.chat_id, job["job_type"], job["target"]))
+                        st.success("Request rejected and the Telegram user was notified.")
+                    except Exception as exc:
+                        st.warning(f"Request rejected, but the Telegram message could not be delivered: {exc}")
+            st.rerun()
+else:
+    st.caption("Telegram requests can be reviewed or rejected after unlocking SAIP Admin.")

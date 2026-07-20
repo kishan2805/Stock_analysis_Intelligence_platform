@@ -96,6 +96,7 @@ GROQ_API_KEY=your_groq_key
 GEMINI_API_KEY=
 OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
+NVIDIA_API_KEY=
 
 # Local Ollama configuration
 OLLAMA_BASE_URL=http://localhost:11434
@@ -105,7 +106,7 @@ OLLAMA_OFFICE_MODEL=Qwen3:0.6b
 ADMIN_PASSWORD=choose-a-long-unique-password
 ```
 
-Model names and fallback order live in [`config/settings.yaml`](config/settings.yaml). Pull or configure the local models you intend to use before running a full analysis.
+Model names and fallback order live in [`config/settings.yaml`](config/settings.yaml). NVIDIA Nemotron Nano is the default primary model for every agent; each agent's previous primary and fallbacks are retained in order behind it. Pull or configure the local models you intend to use before running a full analysis.
 
 ### 4. Start the web app
 
@@ -114,6 +115,16 @@ streamlit run app.py
 ```
 
 Open the local URL printed by Streamlit. The app contains named pages for **SAIP Stock Analysis**, **YouTube Stock Scanner**, and **SAIP Admin**.
+
+### Telegram bot
+
+SAIP can also receive private stock-analysis requests and manage a user's saved YouTube channel list through Telegram. Configure `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ADMIN_USER_ID` in `.env`, install dependencies, then run:
+
+```bash
+venv/bin/python -m src.telegram_bot.main
+```
+
+See [the Telegram integration guide](local/TELEGRAM_INTEGRATION.md) for the command flow, diagrams, privacy model, and deployment requirements.
 
 ### 5. Run from the command line
 
@@ -216,4 +227,3 @@ src/youtube_signals/                Discovery, transcripts, extraction, ranking,
 config/settings.yaml                Model routing and feature configuration
 user_database/                      Ignored local persistent database
 ```
-

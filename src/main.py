@@ -60,7 +60,13 @@ def main():
                 console.print(f"\n[green]Saved to {args.output}[/]")
         else:
             # Rich formatted output
-            display_reports = dict(result.get("agent_reports") or {})
+            # Display the merged audited reports — the same score-bearing
+            # inputs used by the CIO — rather than the pre-audit raw reports.
+            display_reports = dict(
+                (result.get("audited_bundle") or {}).get("validated_reports")
+                or result.get("agent_reports")
+                or {}
+            )
             display_reports["det_risk"] = result.get("det_risk") or {}
             print_final_report(
                 result["cio"],

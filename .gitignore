@@ -15,3 +15,6 @@ report*.json
 reports
 Archive.zip
 output/youtube-runs/
+output/telegram-reports/
+output/telegram-bot/
+output/telegram-video-reports/
