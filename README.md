@@ -4,6 +4,12 @@
 
 > Informational research only - not investment advice. Always verify market data and make independent decisions.
 
+## Built with OpenAI Codex and GPT-5.6
+
+OpenAI Codex, powered by GPT-5.6, was used as the development collaborator for SAIP. It helped inspect the existing architecture; implement and test the Telegram workflow; improve ticker and market selection; add first-come-first-served queuing and seven-day report reuse; improve PDF reports; and add visible admin controls for worker and analysis activity.
+
+Codex also assisted with documentation, edge-case review, and automated test verification. GPT-5.6 was used for development rather than presented as SAIP's runtime investment model: model routing for the application remains configurable in [`config/settings.yaml`](config/settings.yaml).
+
 ## Features
 
 | Surface | Purpose |
