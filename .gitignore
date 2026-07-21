@@ -13,7 +13,8 @@ local
 # ignore generated JSON reports
 report*.json
 reports
-Archive.zip
+Archive_*
+Archive_v2.zip
 output/youtube-runs/
 output/telegram-reports/
 output/telegram-bot/
